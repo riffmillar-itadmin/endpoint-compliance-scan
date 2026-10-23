@@ -15,8 +15,8 @@
     line; anywhere else it prints file:line [rule] message.
 
 .EXAMPLE
-    .\Test-CmmcScanLint.ps1
-    powershell.exe -File .\Test-CmmcScanLint.ps1      # Windows PowerShell 5.1
+    .\Test-ComplianceScanLint.ps1
+    powershell.exe -File .\Test-ComplianceScanLint.ps1      # Windows PowerShell 5.1
 #>
 
 [CmdletBinding()]

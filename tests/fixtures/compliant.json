@@ -1,8 +1,8 @@
 {
-  "SchemaVersion": 1,
+  "SchemaVersion": 2,
   "Meta": {
-    "Tool": "cmmc-endpoint-scan",
-    "Version": "0.1.0",
+    "Tool": "endpoint-compliance-scan",
+    "Version": "0.2.0",
     "ComputerName": "WESTMARK-PC01",
     "CollectedUtc": "2026-10-20T15:00:00.0000000Z",
     "IsElevated": true,
@@ -25,6 +25,10 @@
       "Reason": ""
     },
     "Services": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "Features": {
       "Status": "Ok",
       "Reason": ""
     },
@@ -65,11 +69,11 @@
     "PasswordHistorySize": 24,
     "LockoutBadCount": 5,
     "ResetLockoutCount": 15,
-    "LockoutDuration": 15,
+    "LockoutDuration": 30,
     "RequireLogonToChangePassword": 0,
     "ForceLogoffWhenHourExpire": 0,
-    "NewAdministratorName": "\"WestAdmin\"",
-    "NewGuestName": "\"Guest\"",
+    "NewAdministratorName": "WestAdmin",
+    "NewGuestName": "Guest",
     "ClearTextPassword": 0,
     "LSAAnonymousNameLookup": 0,
     "EnableAdminAccount": 0,
@@ -222,6 +226,36 @@
       "Present": false,
       "Value": null,
       "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\ConsentPromptBehaviorAdmin": {
+      "Present": true,
+      "Value": 2,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\ConsentPromptBehaviorUser": {
+      "Present": true,
+      "Value": 0,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\LimitBlankPasswordUse": {
+      "Present": true,
+      "Value": 1,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoDriveTypeAutoRun": {
+      "Present": true,
+      "Value": 255,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer\\NoAutorun": {
+      "Present": true,
+      "Value": 1,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer\\NoAutoplayfornonVolume": {
+      "Present": true,
+      "Value": 1,
+      "Denied": false
     }
   },
   "Services": {
@@ -256,6 +290,7 @@
       "Status": "Running"
     }
   },
+  "Features": {},
   "Smb": {
     "ServerEnabled": false,
     "Source": "Get-SmbServerConfiguration"

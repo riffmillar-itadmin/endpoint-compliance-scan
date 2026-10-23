@@ -31,9 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Run Test-CmmcScan.ps1 -BothEditions
+      - name: Run Test-ComplianceScan.ps1 -BothEditions
         shell: pwsh
-        run: ./Test-CmmcScan.ps1 -BothEditions
+        run: ./Test-ComplianceScan.ps1 -BothEditions
 
   lint:
     name: PSScriptAnalyzer (${{ matrix.shell }})
@@ -51,15 +51,16 @@ jobs:
       # executable instead. The same script is what you run locally.
       - name: Lint with PSScriptAnalyzer (fails on errors and warnings)
         shell: cmd
-        run: ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\Test-CmmcScanLint.ps1
+        run: ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\Test-ComplianceScanLint.ps1
 
   smoke:
     name: Live scan of the runner (${{ matrix.shell }})
-    # Proves the collectors run on real Windows under each edition. Exit 0 or 1
-    # (findings on a stock runner are expected) passes; 2 means a collector or
-    # check errored, and fails the job.
+    # Proves the collectors run on real Windows under each edition, then
+    # evaluates that one snapshot against every framework. Exit 0 or 1 (findings
+    # on a stock runner are expected) passes; 2 means a collector or check
+    # errored, and fails the job.
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -70,6 +71,15 @@ jobs:
       - name: Scan the runner
         shell: cmd
         run: |
-          ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\Invoke-CmmcEndpointScan.ps1 -OutputPath "%RUNNER_TEMP%\scan"
+          ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-Win11 -OutputPath "%RUNNER_TEMP%\scan" -SnapshotPath "%RUNNER_TEMP%\runner.snapshot.json"
           if %ERRORLEVEL% GEQ 2 exit /b 1
+          exit /b 0
+
+      - name: Evaluate the snapshot against every framework
+        shell: cmd
+        run: |
+          for %%F in (CMMC NIST-800-171r3 NIST-800-53r5 NIST-CSF-2.0 DISA-STIG-Win11 CIS-v8.1 PCI-DSS-4.0.1 HIPAA) do (
+            ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\Invoke-EndpointComplianceScan.ps1 -Framework %%F -FromSnapshot "%RUNNER_TEMP%\runner.snapshot.json" -OutputPath "%RUNNER_TEMP%\scan"
+            if errorlevel 2 exit /b 1
+          )
           exit /b 0

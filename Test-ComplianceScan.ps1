@@ -15,8 +15,8 @@
     is counted and fails the run: a test that can't apply must say so, not pass.
 
 .EXAMPLE
-    .\Test-CmmcScan.ps1 -BothEditions
-    pwsh -File ./Test-CmmcScan.ps1          # one edition, any OS
+    .\Test-ComplianceScan.ps1 -BothEditions
+    pwsh -File ./Test-ComplianceScan.ps1          # one edition, any OS
 #>
 
 [CmdletBinding()]

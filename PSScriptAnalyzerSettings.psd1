@@ -1,8 +1,8 @@
-# PSScriptAnalyzer settings for cmmc-endpoint-scan.
+# PSScriptAnalyzer settings for endpoint-compliance-scan.
 #
 # Picked up automatically by the VS Code PowerShell extension, and by
 #   Invoke-ScriptAnalyzer -Path . -Recurse -Settings .\PSScriptAnalyzerSettings.psd1
-# Test-CmmcScanLint.ps1 runs exactly that, pinned to PSScriptAnalyzer 1.25.0.
+# Test-ComplianceScanLint.ps1 runs exactly that, pinned to PSScriptAnalyzer 1.25.0.
 
 @{
     Severity     = @('Error', 'Warning', 'Information')
