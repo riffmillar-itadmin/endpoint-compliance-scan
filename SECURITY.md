@@ -17,7 +17,8 @@ opens a private advisory only the maintainer can see. Please don't open a public
 issue for a security problem.
 
 Include what you found, how to reproduce it, and which version you tested
-(`$CmmcScanVersion` in `Invoke-CmmcEndpointScan.ps1`, or the release tag).
+(`$ComplianceScanVersion` in `Invoke-EndpointComplianceScan.ps1`, or the
+release tag).
 
 ## What to expect
 

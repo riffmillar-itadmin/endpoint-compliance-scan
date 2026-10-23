@@ -1,48 +1,79 @@
-# cmmc-endpoint-scan
+# endpoint-compliance-scan
 
-A read-only PowerShell scanner that checks a Windows endpoint against
-[NIST SP 800-171 Rev 2](https://csrc.nist.gov/pubs/sp/800/171/r2/upd1/final),
-the requirements CMMC Level 1 and Level 2 are assessed against, and reports a
-result with evidence for each requirement.
+A read-only PowerShell scanner that checks a Windows endpoint against one
+compliance framework, chosen at run time, and reports a result with evidence for
+each requirement.
 
-It is evidence for an assessment, not a verdict. Most of the 110 requirements are
-procedural, or need evidence from outside the endpoint (identity provider,
-network, facility, records). The report marks those Manual and says what an
-assessor would look at instead. It never states that a machine is compliant and
-never computes an SPRS score.
+| Framework | `-Framework` | Levels | Requirements | With endpoint evidence |
+| --- | --- | --- | --- | --- |
+| CMMC Level 1/2 ([NIST SP 800-171 Rev 2](https://csrc.nist.gov/pubs/sp/800/171/r2/upd1/final)) | `CMMC` | L1, L2 | 110 | 32 |
+| [NIST SP 800-171 Rev 3](https://csrc.nist.gov/pubs/sp/800/171/r3/final) | `NIST-800-171r3` | Rev3 | 97 | 24 |
+| [NIST SP 800-53 Rev 5](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final), Low and Moderate baselines | `NIST-800-53r5` | Low, Moderate | 287 | 32 |
+| [DISA Windows 11 STIG](https://public.cyber.mil/stigs/) V2R7 | `DISA-STIG-Win11` | CAT I, CAT II, CAT III | 282 | 195 |
+| [CIS Controls v8.1](https://www.cisecurity.org/controls/v8-1), endpoint safeguards | `CIS-v8.1` | IG1, IG2 | 18 (partial) | 18 |
+| [NIST Cybersecurity Framework 2.0](https://www.nist.gov/cyberframework) | `NIST-CSF-2.0` | CSF | 106 | 11 |
+| [PCI DSS v4.0.1](https://www.pcisecuritystandards.org/document_library/), endpoint requirements | `PCI-DSS-4.0.1` | PCI | 22 (partial) | 22 |
+| [HIPAA Security Rule](https://www.hhs.gov/hipaa/for-professionals/security/), endpoint safeguards | `HIPAA` | HIPAA | 17 (partial) | 14 |
+
+It is evidence for an assessment, not a verdict. Most requirements in most
+frameworks are procedural, or need evidence from outside the endpoint (identity
+provider, network, facility, records). The report marks those Manual and says
+what an assessor would look at instead. It never states that a machine is
+compliant and never computes a score.
+
+The CIS, PCI DSS and HIPAA catalogs are partial: they list only the requirements
+an endpoint can show evidence for, with titles written for this project. The
+standards themselves have the authoritative text, and every report from a
+partial catalog says it is a subset. [frameworks/README.md](frameworks/README.md)
+has the sources and the catalog format.
 
 Runs on Windows PowerShell 5.1 and PowerShell 7. No modules to install.
 
 ## What it changes
 
 Nothing. It reads the registry, security policy, audit policy, services,
-firewall, Defender, BitLocker, local accounts and installed updates. It makes no
-network calls. Its only side effects are two temporary files (the `secedit` and
-`auditpol` exports), deleted as soon as they are read, and the report files.
+optional features, firewall, Defender, BitLocker, local accounts and installed
+updates. It makes no network calls. Its only side effects are two temporary
+files (the `secedit` and `auditpol` exports), deleted as soon as they are read,
+and the report files.
 
 ## Usage
 
 ```powershell
-# Full Level 2 scan. Run elevated, or the checks that need elevation are Skipped.
-.\Invoke-CmmcEndpointScan.ps1
+# Run without -Framework to list the frameworks and their levels.
+.\Invoke-EndpointComplianceScan.ps1
 
-# Level 1 only (the 17 FAR 52.204-21 requirements), and keep the raw snapshot
-.\Invoke-CmmcEndpointScan.ps1 -Level 1 -SnapshotPath .\pc01.snapshot.json
+# Full CMMC Level 2 scan. Run elevated, or the checks that need elevation are Skipped.
+.\Invoke-EndpointComplianceScan.ps1 -Framework CMMC
 
-# Re-evaluate a saved snapshot, on any OS
-pwsh -File ./Invoke-CmmcEndpointScan.ps1 -FromSnapshot ./pc01.snapshot.json
+# CMMC Level 1 only (the 17 FAR 52.204-21 requirements); 1 and L1 both work
+.\Invoke-EndpointComplianceScan.ps1 -Framework CMMC -Level 1
+
+# STIG CAT I rules only, and keep the raw snapshot
+.\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-Win11 -Level 'CAT I' -SnapshotPath .\pc01.snapshot.json
+
+# Evaluate a saved snapshot against another framework, on any OS
+pwsh -File ./Invoke-EndpointComplianceScan.ps1 -Framework NIST-800-53r5 -Level Low -FromSnapshot ./pc01.snapshot.json
 ```
 
-Each run writes `cmmc-scan-<computer>-<timestamp>.csv` (one row per requirement)
-and a `.json` with every check's evidence and the thresholds used, into
-`.\Reports` or `-OutputPath`. Both name the computer and its local accounts, so
-treat them as internal records.
+`-Framework` takes a framework's Id or its catalog file name, ignoring case
+(`disa-stig-win11` works). A level includes the levels before it: `-Level
+Moderate` covers Low and Moderate, and `-Level 'CAT II'` covers CAT I and CAT II.
+Without `-Level` the scan uses the framework's highest level.
+
+One snapshot holds the facts for every framework, so a machine scanned once can
+be evaluated against any of them with `-FromSnapshot`.
+
+Each run writes `compliance-scan-<framework>-<computer>-<timestamp>.csv` (one row
+per requirement) and a `.json` with every check's evidence and the thresholds
+used, into `.\Reports` or `-OutputPath`. Both name the computer and its local
+accounts, so treat them as internal records.
 
 | Exit code | Meaning |
 | --- | --- |
 | 0 | No Fail and no Error |
 | 1 | At least one Fail |
-| 2 | At least one Error, or the scan couldn't start |
+| 2 | At least one Error, or the scan couldn't start (including no `-Framework`) |
 
 ## Results
 
@@ -55,26 +86,36 @@ treat them as internal records.
 | Manual | The endpoint can't show this; the note says what can |
 | NotApplicable | The thing checked is absent, for example RDP idle limits with RDP off |
 
-A requirement takes the worst state among its checks. Nothing passes by default:
-a fact missing from the snapshot is an Error, and a requirement whose checks were
-Skipped is Skipped, not Pass. Where Windows has a documented default for an unset
-value (for example `EnableLUA`), the check uses it and says so in the evidence.
+A requirement takes the worst state among its evidence. Nothing passes by
+default: a fact missing from the snapshot is an Error, and a requirement whose
+checks were Skipped is Skipped, not Pass. Where Windows has a documented default
+for an unset value (for example `EnableLUA`), a check uses it and says so in the
+evidence.
 
-## Checks
+The CSV has one row per requirement: `Requirement` (the catalog Id),
+`Reference` (the ID to quote, such as the CMMC practice `AC.L2-3.1.8`), `Level`,
+`Family`, `Title`, `State`, `Checks` (each piece of evidence and its state),
+`Evidence`, `Findings` (only the evidence that didn't pass) and `Note`.
 
-30 checks supply evidence for 32 requirements: 8 of the 17 at Level 1 (the other
-9 are physical, media or policy controls) and 24 more at Level 2. [`CmmcControls.psd1`](CmmcControls.psd1) maps every one of
-the 110 requirements to its checks, or to a note on the evidence to collect.
+## Evidence
+
+A requirement gets its evidence from two places.
+
+**Named checks** in the script, which apply judgement: 33 of them.
 
 | Family | Checks |
 | --- | --- |
-| AC | Guest disabled; no enabled account without a password requirement; UAC on and prompting on the secure desktop; local Administrators count; account lockout; logon banner; machine inactivity lock; RDP off or NLA required; RDP idle timeout |
+| AC | Guest disabled; no enabled account without a password requirement; UAC on, prompting on the secure desktop, and never elevating without a prompt; local Administrators count; account lockout; logon banner; machine inactivity lock; RDP off or NLA required; RDP idle timeout |
 | AU | Advanced audit subcategories (matched by GUID, so any display language works); Sensitive Privilege Use; Security log size; time sync |
-| CM | SMBv1 off; listed nonessential services absent or disabled; AlwaysInstallElevated off |
-| IA | Password complexity and length; password history; no LM hashes or reversible encryption; NTLMv2 only |
+| CM | SMBv1 off; listed nonessential services absent or disabled; AlwaysInstallElevated off; Autorun and AutoPlay off |
+| IA | Password complexity and length; password history; no LM hashes or reversible encryption; NTLMv2 only; blank passwords limited to console logon |
 | MP | Removable storage policy |
 | SC | Host firewall on with inbound Block on every profile; TLS 1.0 and 1.1 off; FIPS mode; BitLocker on the OS volume |
 | SI | Recent Windows update; real-time antivirus (Defender, or another product registered with Security Center); signature age; recent scan |
+
+**Setting expectations** in the catalog, for rules that are a single setting:
+a registry value, a security policy value, an audit subcategory, a service's
+start type or an optional feature. Most of the STIG's automated rules are these.
 
 The password checks read the local account policy. On a domain-joined machine,
 domain accounts follow the domain password policy, which is assessed on the
@@ -82,10 +123,19 @@ domain controllers.
 
 ## Thresholds
 
-800-171 leaves most values to the organization. The defaults are in
-[`CmmcScan.example.psd1`](CmmcScan.example.psd1). To change one, create
-`CmmcScan.local.psd1` beside the script with only the keys you change; it is
-gitignored and its keys win. `-ProfilePath` uses a different file instead.
+Most frameworks leave values to the organization. Thresholds apply in this
+order, later winning:
+
+1. [`ComplianceScan.example.psd1`](ComplianceScan.example.psd1), the defaults
+2. the framework's own `Thresholds` in its catalog, for example the STIG's
+   14-character passwords and lockout after 3 attempts, or PCI DSS's 30-minute
+   lockout
+3. `ComplianceScan.local.psd1` beside the script, or the file `-ProfilePath`
+   names
+
+To change a value, create `ComplianceScan.local.psd1` with only the keys you
+change; it is gitignored. If your value is looser than one the framework sets,
+the scan warns and uses yours.
 
 `RequireFipsMode` and `RequireRemovableMediaPolicy` can be set to `$false` when
 FIPS-validated modules or device control are evidenced some other way. Those
@@ -94,21 +144,24 @@ checks then report Manual instead of Fail.
 ## Testing
 
 ```powershell
-.\Test-CmmcScan.ps1 -BothEditions    # Pester suite under 5.1 and 7
-.\Test-CmmcScanLint.ps1              # PSScriptAnalyzer; run under pwsh and powershell.exe
+.\Test-ComplianceScan.ps1 -BothEditions    # Pester suite under 5.1 and 7
+.\Test-ComplianceScanLint.ps1              # PSScriptAnalyzer; run under pwsh and powershell.exe
 ```
 
 The suite feeds fixture snapshots to the checks, so it needs no network, no
-elevation and no Windows. Skipped tests fail the run. The Tests workflow runs
-the suite, lint on both editions, and a live scan of the runner on both
-editions.
+elevation and no Windows. For every framework it checks the catalog's shape and
+that a snapshot meeting every expectation passes. Skipped tests fail the run.
+The Tests workflow runs the suite, lint on both editions, and a live scan of the
+runner on both editions, evaluated against every framework.
 
 ## Changelog
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.2.0 | 2026-10-23 | Renamed from cmmc-endpoint-scan. Eight frameworks, one chosen per run with `-Framework` and `-Level`: CMMC, NIST SP 800-171 Rev 3, NIST SP 800-53 Rev 5 Low/Moderate, DISA Windows 11 STIG, CIS Controls v8.1, NIST CSF 2.0, PCI DSS 4.0.1, HIPAA Security Rule. Setting expectations in catalogs; optional features collector; new checks for UAC prompt behaviour, AutoPlay and blank-password logons; per-framework thresholds; snapshot schema 2. |
 | 0.1.0 | 2026-10-23 | First draft: catalog of all 110 requirements, 30 endpoint checks, CSV and JSON reports, Pester suite, CI on both editions. |
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE). Framework content belongs to its publishers;
+see [frameworks/README.md](frameworks/README.md).

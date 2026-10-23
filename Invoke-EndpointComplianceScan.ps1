@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-    Scans the local Windows endpoint for evidence against NIST SP 800-171 Rev 2,
-    the requirements CMMC Level 1 and Level 2 are assessed against.
+    Scans the local Windows endpoint for evidence against one compliance framework,
+    chosen at run time: CMMC, NIST SP 800-171 Rev 3, NIST SP 800-53 Rev 5, the DISA
+    Windows 11 STIG, CIS Controls v8.1, NIST CSF 2.0, PCI DSS 4.0.1 or HIPAA.
 
 .DESCRIPTION
     Read-only. The scan changes no setting, writes nothing to the registry and makes
@@ -10,10 +11,15 @@
 
     It works in two stages so that every pass/fail rule can be tested anywhere:
         1. Collect: gather raw facts about the machine into a snapshot.
-        2. Evaluate: judge the snapshot against each check's threshold.
+        2. Evaluate: judge the snapshot against one framework's requirements.
+    One snapshot holds the facts for every framework, so a saved snapshot can be
+    evaluated against any of them later with -FromSnapshot.
 
-    Each check supplies evidence for one or more requirements in CmmcControls.psd1.
-    A requirement's result is the worst of its checks' results:
+    Each framework is a catalog in the frameworks folder (frameworks/README.md
+    describes the format). A requirement gets its evidence from named checks in
+    this script, from setting expectations in the catalog (a registry value, a
+    security policy value, an audit subcategory, a service or an optional
+    feature), or from both. Its result is the worst of those results:
         Fail           evidence collected and it misses the threshold
         Error          a collector or check threw; the message is in the report
         Skipped        the check applies but could not run (usually: not elevated)
@@ -23,27 +29,36 @@
     Nothing passes by default. A fact missing from the snapshot is an Error, never
     a Pass.
 
-    This is evidence for an assessment, not a verdict. Most of the 110 requirements
-    are procedural or need evidence from outside the endpoint, so the report never
-    states that a machine is compliant and never computes an SPRS score.
+    This is evidence for an assessment, not a verdict. Most requirements in most
+    frameworks are procedural or need evidence from outside the endpoint, so the
+    report never states that a machine is compliant and never computes a score.
+    Catalogs for copyrighted standards (CIS, PCI DSS) and the HIPAA catalog hold
+    only the requirements an endpoint can show evidence for; the report says so.
 
     Writes two files per run into -OutputPath:
-        cmmc-scan-<computer>-<timestamp>.csv   one row per requirement
-        cmmc-scan-<computer>-<timestamp>.json  requirements, checks and thresholds
+        compliance-scan-<framework>-<computer>-<timestamp>.csv   one row per requirement
+        compliance-scan-<framework>-<computer>-<timestamp>.json  requirements, checks and thresholds
 
     Exit codes: 0 no Fail and no Error; 1 at least one Fail; 2 at least one Error,
     or the scan could not start. Error wins over Fail because a run with errors
     can't be relied on either way.
 
+.PARAMETER Framework
+    The framework to evaluate, by its Id or its catalog file name, for example
+    CMMC, NIST-800-53r5 or disa-stig-win11. Required; run without it to list them.
+
 .PARAMETER Level
-    1 assesses the 17 Level 1 requirements; 2 (the default) assesses all 110.
+    The framework level to assess, such as L1 (CMMC), Low (NIST SP 800-53), CAT I
+    (STIG) or IG1 (CIS). A level includes the levels before it. Defaults to the
+    framework's highest level. For CMMC, 1 and 2 also work.
 
 .PARAMETER OutputPath
     Folder for the report files. Defaults to a Reports folder beside this script.
 
 .PARAMETER ProfilePath
-    Thresholds file to use on top of CmmcScan.example.psd1. Without it, a
-    CmmcScan.local.psd1 beside the script is used if present.
+    Thresholds file to use on top of ComplianceScan.example.psd1 and the
+    framework's own thresholds. Without it, a ComplianceScan.local.psd1 beside the
+    script is used if present.
 
 .PARAMETER SnapshotPath
     Also save the collected snapshot to this JSON file, for review elsewhere or as
@@ -60,27 +75,33 @@
     Also write the requirement results to the pipeline.
 
 .EXAMPLE
-    .\Invoke-CmmcEndpointScan.ps1
-    Full Level 2 scan. Run elevated, or the checks that need elevation are Skipped.
+    .\Invoke-EndpointComplianceScan.ps1 -Framework CMMC
+    Full CMMC Level 2 scan. Run elevated, or the checks that need elevation are Skipped.
 
 .EXAMPLE
-    .\Invoke-CmmcEndpointScan.ps1 -Level 1 -SnapshotPath .\pc01.json
-    Level 1 only, and keep the raw snapshot.
+    .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-Win11 -Level 'CAT I' -SnapshotPath .\pc01.snapshot.json
+    STIG CAT I rules only, and keep the raw snapshot.
 
 .EXAMPLE
-    pwsh -File ./Invoke-CmmcEndpointScan.ps1 -FromSnapshot ./pc01.json
-    Re-evaluate a saved snapshot, for example after changing a threshold.
+    pwsh -File ./Invoke-EndpointComplianceScan.ps1 -Framework NIST-800-53r5 -Level Low -FromSnapshot ./pc01.snapshot.json
+    Evaluate a saved snapshot against another framework.
 
 .NOTES
     Version notes
     0.1.0  2026-10-23  First draft: catalog of all 110 requirements, 30 endpoint
                        checks, CSV and JSON reports.
+    0.2.0  2026-10-23  Multiple frameworks, chosen with -Framework: CMMC, NIST SP
+                       800-171 Rev 3, NIST SP 800-53 Rev 5, DISA Windows 11 STIG,
+                       CIS Controls v8.1, NIST CSF 2.0, PCI DSS 4.0.1, HIPAA.
+                       Setting expectations in catalogs, an optional features
+                       collector, three new checks. Renamed from
+                       Invoke-CmmcEndpointScan.ps1.
 #>
 
 [CmdletBinding()]
 param(
-    [ValidateSet(1, 2)]
-    [int]$Level = 2,
+    [string]$Framework,
+    [string]$Level,
     [string]$OutputPath,
     [string]$ProfilePath,
     [string]$SnapshotPath,
@@ -92,10 +113,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$CmmcScanVersion = '0.1.0'
-$SnapshotSchemaVersion = 1
+$ComplianceScanVersion = '0.2.0'
+$SnapshotSchemaVersion = 2
 
-# Worst first. A requirement takes the worst state among its checks.
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
 
 #region Helpers
@@ -213,14 +233,18 @@ $RegTsPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services'
 $RegLsa      = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa'
 $RegSchannel = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols'
 $RegRemovable = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices'
+$RegExplorer = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer'
+$RegExplorerPolicy = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'
 # Device setup class GUID for removable disks
 $RemovableDiskClass = '{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}'
 
 function Get-RegistryTarget {
-    # Every registry value a check reads. Keys in the snapshot are "<path>\<name>".
+    # Every registry value a named check reads. Keys in the snapshot are "<path>\<name>".
     @(
         "$RegSystem\EnableLUA"
         "$RegSystem\PromptOnSecureDesktop"
+        "$RegSystem\ConsentPromptBehaviorAdmin"
+        "$RegSystem\ConsentPromptBehaviorUser"
         "$RegSystem\LegalNoticeCaption"
         "$RegSystem\LegalNoticeText"
         "$RegSystem\InactivityTimeoutSecs"
@@ -232,6 +256,7 @@ function Get-RegistryTarget {
         "$RegTsPolicy\MaxIdleTime"
         "$RegLsa\NoLMHash"
         "$RegLsa\LmCompatibilityLevel"
+        "$RegLsa\LimitBlankPasswordUse"
         "$RegLsa\FipsAlgorithmPolicy\Enabled"
         'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer\AlwaysInstallElevated'
         'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer\AlwaysInstallElevated'
@@ -241,6 +266,9 @@ function Get-RegistryTarget {
         "$RegSchannel\TLS 1.1\Client\Enabled"
         "$RegRemovable\Deny_All"
         "$RegRemovable\$RemovableDiskClass\Deny_Write"
+        "$RegExplorer\NoDriveTypeAutoRun"
+        "$RegExplorer\NoAutorun"
+        "$RegExplorerPolicy\NoAutoplayfornonVolume"
         'HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\Security\MaxSize'
         'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Security\MaxSize'
         'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters\Type'
@@ -249,17 +277,66 @@ function Get-RegistryTarget {
     )
 }
 
+function Get-CollectionTarget {
+    # What the collectors read: the named checks' registry values plus every
+    # registry value, service and optional feature any catalog expects, so one
+    # snapshot serves every framework. Registry targets keep path and value name
+    # apart, because a value name can hold a backslash (\\*\NETLOGON).
+    param([object[]]$Catalogs, $Thresholds)
+    $registry = [ordered]@{}
+    foreach ($k in Get-RegistryTarget) {
+        $i = $k.LastIndexOf('\')
+        $registry[$k] = [pscustomobject]@{ Path = $k.Substring(0, $i); Name = $k.Substring($i + 1) }
+    }
+    $services = [Collections.Generic.List[string]]::new()
+    foreach ($n in @(@($Thresholds.NonessentialServices) + 'W32Time')) { if (-not $services.Contains($n)) { $services.Add($n) } }
+    $features = [Collections.Generic.List[string]]::new()
+    foreach ($c in $Catalogs) {
+        foreach ($r in @($c.Requirements)) {
+            if (-not $r.Contains('Expect')) { continue }
+            foreach ($e in @($r.Expect)) {
+                switch ("$($e.Source)") {
+                    'Registry' { $registry["$($e.Path)\$($e.Name)"] = [pscustomobject]@{ Path = $e.Path; Name = $e.Name } }
+                    'Service' { if (-not $services.Contains($e.Name)) { $services.Add($e.Name) } }
+                    'Feature' { if (-not $features.Contains($e.Name)) { $features.Add($e.Name) } }
+                }
+            }
+        }
+    }
+    [pscustomobject]@{ Registry = $registry; Services = @($services); Features = @($features) }
+}
+
 $AuditBits = @{ Success = 1; Failure = 2; SuccessAndFailure = 3 }
 $AuditNames = @{ 0 = 'No Auditing'; 1 = 'Success'; 2 = 'Failure'; 3 = 'Success and Failure' }
 
+# Advanced audit subcategories by English name. auditpol records them by GUID,
+# so matching on the GUID works on any Windows display language.
+$AuditGuidSuffix = '-69AE-11D9-BED3-505054503030}'
+$AuditSubcategoryGuid = @{}
+foreach ($pair in @(
+        @('Security State Change', '10'), @('Security System Extension', '11'), @('System Integrity', '12'),
+        @('IPsec Driver', '13'), @('Other System Events', '14'), @('Logon', '15'), @('Logoff', '16'),
+        @('Account Lockout', '17'), @('Special Logon', '1B'), @('Other Logon/Logoff Events', '1C'),
+        @('File System', '1D'), @('Registry', '1E'), @('File Share', '24'), @('Other Object Access Events', '27'),
+        @('Sensitive Privilege Use', '28'), @('Process Creation', '2B'), @('Audit Policy Change', '2F'),
+        @('Authentication Policy Change', '30'), @('Authorization Policy Change', '31'),
+        @('MPSSVC Rule-Level Policy Change', '32'), @('Other Policy Change Events', '34'),
+        @('User Account Management', '35'), @('Computer Account Management', '36'),
+        @('Security Group Management', '37'), @('Credential Validation', '3F'), @('Detailed File Share', '44'),
+        @('Removable Storage', '45'), @('Plug and Play Events', '48'), @('Group Membership', '49'))) {
+    $AuditSubcategoryGuid[$pair[0]] = "{0CCE92$($pair[1])$AuditGuidSuffix"
+}
+
 function Test-AuditSubcategory {
-    # Each required subcategory must include the required bits. Returns a result.
+    # Each required subcategory (Name, Setting) must include the required bits.
+    # Returns a result.
     param($Snapshot, [object[]]$Required)
     $ap = Get-Prop $Snapshot 'AuditPolicy'
     $short = @()
     $ok = @()
     foreach ($r in $Required) {
-        $guid = "$($r.Guid)".ToUpperInvariant()
+        $guid = $AuditSubcategoryGuid["$($r.Name)"]
+        if ($null -eq $guid) { throw "Unknown audit subcategory '$($r.Name)'." }
         $actual = 0
         if (Test-Prop $ap $guid) { $actual = [int](Get-Prop $ap $guid) }
         $need = $AuditBits["$($r.Setting)"]
@@ -333,6 +410,27 @@ function Get-CheckTable {
                 $ev = Format-Setting $v 'PromptOnSecureDesktop'
                 if ("$($v.Value)" -eq '1') { return New-CheckResult Pass $ev }
                 New-CheckResult Fail $ev
+            }
+        }
+
+        'AC-UacPromptBehavior' = @{
+            Title = 'Elevation prompts are never skipped'
+            Needs = @('Registry')
+            Test  = {
+                param($S, $T)
+                # Admin: 0 elevates without asking. User: 0 denies, 1 and 3 ask for credentials.
+                $admin = Get-RegSetting $S @("$RegSystem\ConsentPromptBehaviorAdmin") -Default 5
+                $user = Get-RegSetting $S @("$RegSystem\ConsentPromptBehaviorUser") -Default 3
+                $ev = (Format-Setting $admin 'ConsentPromptBehaviorAdmin') + '; ' + (Format-Setting $user 'ConsentPromptBehaviorUser')
+                $bad = @()
+                if ("$($admin.Value)" -notin @($T.UacAdminPromptValues | ForEach-Object { "$_" })) {
+                    $bad += 'admin prompt allowed: ' + (@($T.UacAdminPromptValues) -join ', ')
+                }
+                if ("$($user.Value)" -notin @($T.UacUserPromptValues | ForEach-Object { "$_" })) {
+                    $bad += 'user prompt allowed: ' + (@($T.UacUserPromptValues) -join ', ')
+                }
+                if ($bad.Count -gt 0) { return New-CheckResult Fail "$ev; $($bad -join '; ')." }
+                New-CheckResult Pass $ev
             }
         }
 
@@ -449,10 +547,8 @@ function Get-CheckTable {
             Needs = @('AuditPolicy')
             Test  = {
                 param($S, $T)
-                $req = @($T.AuditSubcategories | Where-Object { $_.Guid -eq '{0CCE9228-69AE-11D9-BED3-505054503030}' })
-                if ($req.Count -eq 0) {
-                    $req = @(@{ Name = 'Sensitive Privilege Use'; Guid = '{0CCE9228-69AE-11D9-BED3-505054503030}'; Setting = 'SuccessAndFailure' })
-                }
+                $req = @($T.AuditSubcategories | Where-Object { $_.Name -eq 'Sensitive Privilege Use' })
+                if ($req.Count -eq 0) { $req = @(@{ Name = 'Sensitive Privilege Use'; Setting = 'SuccessAndFailure' }) }
                 Test-AuditSubcategory $S $req
             }
         }
@@ -553,6 +649,23 @@ function Get-CheckTable {
             }
         }
 
+        'CM-AutoplayDisabled' = @{
+            Title = 'Autorun and AutoPlay are off for every drive type'
+            Needs = @('Registry')
+            Test  = {
+                param($S, $T)
+                $types = Get-RegSetting $S @("$RegExplorer\NoDriveTypeAutoRun") -Default 145
+                $autorun = Get-RegSetting $S @("$RegExplorer\NoAutorun")
+                $nonVolume = Get-RegSetting $S @("$RegExplorerPolicy\NoAutoplayfornonVolume")
+                $ev = @((Format-Setting $types 'NoDriveTypeAutoRun'), (Format-Setting $autorun 'NoAutorun'),
+                    (Format-Setting $nonVolume 'NoAutoplayfornonVolume')) -join '; '
+                if ("$($types.Value)" -eq '255' -and "$($autorun.Value)" -eq '1' -and "$($nonVolume.Value)" -eq '1') {
+                    return New-CheckResult Pass $ev
+                }
+                New-CheckResult Fail "$ev; needs 255, 1 and 1."
+            }
+        }
+
         'IA-PasswordComplexity' = @{
             Title = 'Local passwords need complexity and a minimum length'
             Needs = @('SecurityPolicy')
@@ -605,6 +718,18 @@ function Get-CheckTable {
                 $ev = Format-Setting $v 'LmCompatibilityLevel'
                 if ([int]$v.Value -ge 5) { return New-CheckResult Pass $ev }
                 New-CheckResult Fail "$ev; needs 5."
+            }
+        }
+
+        'IA-BlankPasswordConsoleOnly' = @{
+            Title = 'Accounts with blank passwords can log on only at the console'
+            Needs = @('Registry')
+            Test  = {
+                param($S, $T)
+                $v = Get-RegSetting $S @("$RegLsa\LimitBlankPasswordUse") -Default 1
+                $ev = Format-Setting $v 'LimitBlankPasswordUse'
+                if ("$($v.Value)" -eq '1') { return New-CheckResult Pass $ev }
+                New-CheckResult Fail $ev
             }
         }
 
@@ -792,7 +917,8 @@ function Get-ThirdPartyAvProduct {
 
 function Invoke-Check {
     # Runs one check against a snapshot. Never throws: a missing section becomes
-    # Skipped or Error, and a Test that throws becomes Error.
+    # Skipped or Error, and a Test that throws becomes Error. The Test gets the
+    # definition too, which is how an expectation reaches its Test.
     param([string]$Name, $Definition, $Snapshot, $Thresholds)
     $collection = Get-Prop $Snapshot 'Collection'
     $needs = @()
@@ -822,7 +948,7 @@ function Invoke-Check {
     $result = $blocked
     if (-not $result) {
         try {
-            $result = & $Definition.Test $Snapshot $Thresholds
+            $result = & $Definition.Test $Snapshot $Thresholds $Definition
             if ($null -eq $result) { $result = New-CheckResult Error 'Check returned no result.' }
         } catch {
             $result = New-CheckResult Error "Check failed: $($_.Exception.Message)"
@@ -837,48 +963,270 @@ function Invoke-Check {
     }
 }
 
-function Invoke-CmmcEvaluation {
-    # Judges a snapshot. Returns the check results and one result per requirement
-    # at or under -Level.
-    param($Snapshot, $Thresholds, $Catalog, [int]$Level = 2)
+#region Expectations
+
+# The snapshot section each expectation source reads.
+$ExpectSection = @{ Registry = 'Registry'; SecPol = 'SecurityPolicy'; Audit = 'AuditPolicy'; Service = 'Services'; Feature = 'Features' }
+
+function Get-ExpectLabel {
+    # Short name for an expectation in the Checks column. Never holds '=' or ';'.
+    param($Expect)
+    switch ("$($Expect.Source)") {
+        'Audit' { return "Audit:$($Expect.Subcategory)/$($Expect.Setting)" }
+        default { return "$($Expect.Source):$($Expect.Name)" }
+    }
+}
+
+function ConvertTo-Comparable {
+    # Values compare as text, case and spacing ignored. A DWORD the registry API
+    # returned as a negative Int32 compares as the unsigned value Windows shows.
+    param($Value)
+    if ($Value -is [int] -and $Value -lt 0) { $Value = [int64]$Value + 4294967296 }
+    return ("$Value" -replace '\s', '').ToLowerInvariant()
+}
+
+function ConvertTo-Number {
+    param($Value)
+    if ($Value -is [int] -and $Value -lt 0) { return [double]([int64]$Value + 4294967296) }
+    $n = 0.0
+    if ([double]::TryParse("$Value", [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$n)) { return $n }
+    return $null
+}
+
+function Format-Expectation {
+    param($Expect)
+    $text = switch ("$($Expect.Op)") {
+        'eq' { "$($Expect.Value)" }
+        'ne' { "anything but '$($Expect.Value)'" }
+        'ge' { "$($Expect.Value) or more" }
+        'between' { "$($Expect.Min) to $($Expect.Max)" }
+        'in' { 'one of ' + (@($Expect.Values) -join ', ') }
+        'notempty' { 'a value' }
+        default { throw "Unknown Op '$($Expect.Op)'; use eq, ne, ge, between, in or notempty." }
+    }
+    if ($Expect.Contains('Also')) { $text += ' (or ' + (@($Expect.Also) -join ', ') + ')' }
+    return $text
+}
+
+function Test-ExpectValue {
+    # True when $Actual meets the expectation's Op.
+    param($Actual, $Expect)
+    if ($Expect.Contains('Also')) {
+        foreach ($a in @($Expect.Also)) { if ((ConvertTo-Comparable $Actual) -eq (ConvertTo-Comparable $a)) { return $true } }
+    }
+    switch ("$($Expect.Op)") {
+        'eq' { return (ConvertTo-Comparable $Actual) -eq (ConvertTo-Comparable $Expect.Value) }
+        'ne' { return (ConvertTo-Comparable $Actual) -ne (ConvertTo-Comparable $Expect.Value) }
+        'ge' {
+            $n = ConvertTo-Number $Actual
+            return $null -ne $n -and $n -ge [double]$Expect.Value
+        }
+        'between' {
+            $n = ConvertTo-Number $Actual
+            return $null -ne $n -and $n -ge [double]$Expect.Min -and $n -le [double]$Expect.Max
+        }
+        'in' {
+            foreach ($v in @($Expect.Values)) { if ((ConvertTo-Comparable $Actual) -eq (ConvertTo-Comparable $v)) { return $true } }
+            return $false
+        }
+        'notempty' { return "$Actual".Trim() -ne '' }
+        default { throw "Unknown Op '$($Expect.Op)'; use eq, ne, ge, between, in or notempty." }
+    }
+}
+
+function Test-Expectation {
+    # Judges one catalog expectation against the snapshot. Returns a result.
+    param($Snapshot, $Expect)
+    switch ("$($Expect.Source)") {
+        'Registry' {
+            $f = Get-RegFact $Snapshot "$($Expect.Path)\$($Expect.Name)"
+            if (Get-Prop $f 'Denied') { return New-CheckResult Skipped "$($Expect.Name) is not readable without elevation." }
+            if (-not (Get-Prop $f 'Present')) {
+                if ($Expect.Contains('AbsentOk') -and $Expect.AbsentOk) { return New-CheckResult Pass "$($Expect.Name) not set, which is allowed." }
+                return New-CheckResult Fail "$($Expect.Name) not set; needs $(Format-Expectation $Expect)."
+            }
+            $actual = Get-Prop $f 'Value'
+            $label = $Expect.Name
+        }
+        'SecPol' {
+            $actual = Get-SecPolValue $Snapshot $Expect.Name
+            if ($null -eq $actual) { return New-CheckResult Fail "$($Expect.Name) is not defined in the security policy; needs $(Format-Expectation $Expect)." }
+            $label = $Expect.Name
+        }
+        'Audit' {
+            return Test-AuditSubcategory $Snapshot @(@{ Name = $Expect.Subcategory; Setting = $Expect.Setting })
+        }
+        'Service' {
+            $svc = Get-Prop (Get-Prop $Snapshot 'Services') $Expect.Name
+            if ($null -eq $svc) { throw "Service '$($Expect.Name)' was not collected." }
+            if (-not $svc.Present) { return New-CheckResult Pass "Service $($Expect.Name) is not installed." }
+            $ev = "Service $($Expect.Name) is $($svc.StartType)"
+            if ("$($svc.StartType)" -eq "$($Expect.StartType)") { return New-CheckResult Pass "$ev." }
+            return New-CheckResult Fail "$ev; needs $($Expect.StartType)."
+        }
+        'Feature' {
+            $feat = Get-Prop (Get-Prop $Snapshot 'Features') $Expect.Name
+            if ($null -eq $feat) { throw "Optional feature '$($Expect.Name)' was not collected." }
+            if (-not $feat.Present) { return New-CheckResult Pass "Optional feature $($Expect.Name) is not present on this Windows build." }
+            # DisabledWithPayloadRemoved is disabled too.
+            if ("$($feat.State)" -like "$($Expect.State)*") { return New-CheckResult Pass "Optional feature $($Expect.Name) is $($feat.State)." }
+            return New-CheckResult Fail "Optional feature $($Expect.Name) is $($feat.State); needs $($Expect.State)."
+        }
+        default { throw "Unknown expectation source '$($Expect.Source)'." }
+    }
+    $ev = "$label = $actual"
+    if (Test-ExpectValue $actual $Expect) { return New-CheckResult Pass $ev }
+    return New-CheckResult Fail "$ev; needs $(Format-Expectation $Expect)."
+}
+
+function Invoke-Expectation {
+    # Runs one expectation through Invoke-Check, so a section that wasn't
+    # collected is Skipped or Error exactly as it is for a named check.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+        Justification = 'The Test takes the same (snapshot, thresholds, definition) arguments as every check; expectations have no threshold.')]
+    param($Expect, $Snapshot)
+    $label = Get-ExpectLabel $Expect
+    $section = $ExpectSection["$($Expect.Source)"]
+    $definition = @{
+        Title  = $label
+        Expect = $Expect
+        Test   = { param($S, $T, $D) Test-Expectation $S $D.Expect }
+    }
+    if ($section) { $definition.Needs = @($section) }
+    Invoke-Check -Name $label -Definition $definition -Snapshot $Snapshot -Thresholds $null
+}
+
+#endregion
+
+#region Frameworks
+
+function Import-CatalogFile {
+    # Reads a catalog as data. Import-PowerShellDataFile stops at a node limit the
+    # STIG catalog exceeds, and Windows PowerShell 5.1 has no -SkipLimitCheck, so
+    # the file is checked against the restricted language (literals, arrays and
+    # hashtables; no commands, no variables but $true, $false and $null) and only
+    # then run.
+    param([string]$Path)
+    $block = [scriptblock]::Create([IO.File]::ReadAllText($Path))
+    $block.CheckRestrictedLanguage([string[]]@(), [string[]]@(), $false)
+    $data = & $block
+    if ($data -isnot [hashtable]) { throw "$Path does not hold a single hashtable." }
+    return $data
+}
+
+function Get-FrameworkCatalog {
+    # Every catalog in the frameworks folder, sorted by Id.
+    param([string]$Folder)
+    $files = @(Get-ChildItem -LiteralPath $Folder -Filter '*.psd1' -File | Sort-Object Name)
+    if ($files.Count -eq 0) { throw "No framework catalogs in $Folder." }
+    @(foreach ($f in $files) {
+        $c = Import-CatalogFile $f.FullName
+        $c.File = $f.BaseName
+        $c
+    }) | Sort-Object { $_.Id }
+}
+
+function Format-FrameworkList {
+    param([object[]]$Catalogs)
+    (@($Catalogs | ForEach-Object {
+        '  {0,-16} {1} (levels: {2})' -f $_.Id, $_.Name, (@($_.Levels) -join ', ')
+    }) -join [Environment]::NewLine)
+}
+
+function Resolve-Framework {
+    # A catalog by Id or file name, ignoring case.
+    param([object[]]$Catalogs, [string]$Name)
+    if (-not $Name) {
+        throw ("Choose a framework with -Framework. Available:" + [Environment]::NewLine + (Format-FrameworkList $Catalogs))
+    }
+    $hit = @($Catalogs | Where-Object { $_.Id -eq $Name -or $_.File -eq $Name })
+    if ($hit.Count -eq 0) {
+        throw ("Unknown framework '$Name'. Available:" + [Environment]::NewLine + (Format-FrameworkList $Catalogs))
+    }
+    return $hit[0]
+}
+
+function Resolve-FrameworkLevel {
+    # The framework's spelling of -Level; the highest level when none is given.
+    # A bare number n also matches level Ln, so CMMC takes -Level 2.
+    param($Catalog, [string]$Level)
+    $levels = @($Catalog.Levels)
+    if (-not $Level) { return $levels[-1] }
+    foreach ($l in $levels) {
+        if ($l -eq $Level -or ($Level -match '^\d+$' -and $l -eq "L$Level")) { return $l }
+    }
+    throw "Level '$Level' is not one of $($Catalog.Id)'s levels: $($levels -join ', ')."
+}
+
+function Format-RequirementReference {
+    # The ID a report shows, from the catalog's PracticeFormat, such as
+    # '{Family}.{Level}-{Id}' for CMMC (AC.L2-3.1.8). Default: the Id.
+    param($Catalog, $Requirement)
+    $format = '{Id}'
+    if ($Catalog.Contains('PracticeFormat') -and $Catalog.PracticeFormat) { $format = $Catalog.PracticeFormat }
+    return $format.Replace('{Family}', "$($Requirement.Family)").Replace('{Level}', "$($Requirement.Level)").Replace('{Id}', "$($Requirement.Id)")
+}
+
+#endregion
+
+function Invoke-ComplianceEvaluation {
+    # Judges a snapshot against one framework. Returns the check results and one
+    # result per requirement at or under -Level (a level includes the ones
+    # listed before it in the catalog).
+    param($Snapshot, $Thresholds, $Catalog, [string]$Level)
+    $Level = Resolve-FrameworkLevel $Catalog $Level
+    $levels = @($Catalog.Levels)
+    $cut = [array]::IndexOf($levels, $Level)
+
     $table = Get-CheckTable
     $checkResults = [ordered]@{}
     foreach ($name in $table.Keys) {
         $checkResults[$name] = Invoke-Check -Name $name -Definition $table[$name] -Snapshot $Snapshot -Thresholds $Thresholds
     }
 
-    $requirements = foreach ($r in @($Catalog.Requirements | Where-Object { $_.Level -le $Level })) {
-        $names = @($r.Checks)
+    $requirements = foreach ($r in @($Catalog.Requirements)) {
+        $rank = [array]::IndexOf($levels, "$($r.Level)")
+        if ($rank -lt 0) { throw "Catalog entry $($r.Id) has level '$($r.Level)', which is not in Levels." }
+        if ($rank -gt $cut) { continue }
         $notes = @()
         if ($r.Contains('Note') -and $r.Note) { $notes += $r.Note }
-        if ($names.Count -eq 0) {
+        $results = @(foreach ($n in @($r.Checks)) {
+            if (-not $checkResults.Contains($n)) { throw "Catalog entry $($r.Id) names unknown check '$n'." }
+            $checkResults[$n]
+        })
+        if ($r.Contains('Expect')) {
+            $results += @(foreach ($e in @($r.Expect)) { Invoke-Expectation -Expect $e -Snapshot $Snapshot })
+        }
+        if ($results.Count -eq 0) {
             $state = 'Manual'
             $checks = ''
             $evidence = ''
+            $findings = ''
         } else {
-            $results = @(foreach ($n in $names) {
-                if (-not $checkResults.Contains($n)) { throw "Catalog entry $($r.Id) names unknown check '$n'." }
-                $checkResults[$n]
-            })
             $state = ($results | Sort-Object { $StateRank[$_.State] } | Select-Object -First 1).State
             $checks = ($results | ForEach-Object { "$($_.Check)=$($_.State)" }) -join '; '
             $evidence = ($results | ForEach-Object { "$($_.Check): $($_.Evidence)" }) -join ' | '
+            $findings = (@($results | Where-Object { $_.State -notin 'Pass', 'NotApplicable' } |
+                ForEach-Object { "$($_.Check): $($_.Evidence)" }) -join ' | ')
             $notes += @($results | Where-Object { $_.Note } | ForEach-Object { $_.Note })
         }
         [pscustomobject]@{
             Requirement = $r.Id
-            Practice    = "$($r.Family).L$($r.Level)-$($r.Id)"
+            Reference   = Format-RequirementReference $Catalog $r
             Level       = $r.Level
             Family      = $r.Family
             Title       = $r.Title
             State       = $state
             Checks      = $checks
             Evidence    = $evidence
+            Findings    = $findings
             Note        = (@($notes | Select-Object -Unique) -join ' ')
         }
     }
 
     [pscustomobject]@{
+        Framework    = $Catalog.Id
+        Level        = $Level
         Checks       = @($checkResults.Values)
         Requirements = @($requirements)
     }
@@ -892,15 +1240,42 @@ function Get-ScanExitCode {
     return 0
 }
 
+# Which way is stricter, for the warning when a local profile loosens a value a
+# framework sets. Keys not listed warn on any change.
+$ThresholdDirection = @{
+    MaxLocalAdmins = 'Max'; LockoutThresholdMax = 'Max'; InactivityLockMaxSeconds = 'Max'; RdpIdleMaxMinutes = 'Max'
+    MaxDaysSinceUpdate = 'Max'; MaxSignatureAgeDays = 'Max'; MaxDaysSinceScan = 'Max'
+    LockoutDurationMinMinutes = 'Min'; MinPasswordLength = 'Min'; MinPasswordHistory = 'Min'; MinSecurityLogMB = 'Min'
+}
+
 function Get-ScanThreshold {
-    # The example thresholds, with -ProfilePath (or CmmcScan.local.psd1) on top.
+    # The example thresholds, then the framework's, then -ProfilePath (or
+    # ComplianceScan.local.psd1). Warns when the profile loosens a framework value.
     [CmdletBinding()]
-    param([string]$ExamplePath, [string]$OverridePath)
+    param([string]$ExamplePath, $Catalog, [string]$OverridePath)
     $t = Import-PowerShellDataFile -LiteralPath $ExamplePath
+    $fromFramework = @{}
+    if ($Catalog -and $Catalog.Contains('Thresholds')) { $fromFramework = $Catalog.Thresholds }
+    foreach ($k in @($fromFramework.Keys)) {
+        if (-not $t.ContainsKey($k)) { throw "Framework $($Catalog.Id) sets unknown threshold '$k'." }
+        $t[$k] = $fromFramework[$k]
+    }
     if ($OverridePath) {
         $o = Import-PowerShellDataFile -LiteralPath $OverridePath
         foreach ($k in @($o.Keys)) {
             if (-not $t.ContainsKey($k)) { Write-Warning "Unknown threshold '$k' in $OverridePath is ignored." ; continue }
+            if ($fromFramework.ContainsKey($k)) {
+                $fw = $fromFramework[$k]
+                $mine = $o[$k]
+                $looser = switch ($ThresholdDirection[$k]) {
+                    'Max' { [double]$mine -gt [double]$fw }
+                    'Min' { [double]$mine -lt [double]$fw }
+                    default { (@($mine) -join ',') -ne (@($fw) -join ',') }
+                }
+                if ($looser) {
+                    Write-Warning "$OverridePath sets $k = $(@($mine) -join ', '), looser than or different from $($Catalog.Id)'s $(@($fw) -join ', '). The report uses your value."
+                }
+            }
             $t[$k] = $o[$k]
         }
     }
@@ -950,10 +1325,8 @@ function Invoke-Collector {
 function Read-RegistryValue {
     # One value straight from the registry API, so a missing key, a missing value
     # and an access-denied key are told apart.
-    param([string]$Key)
-    $hiveName, $rest = $Key -split ':\\', 2
-    $sub = Split-Path $rest -Parent
-    $name = Split-Path $rest -Leaf
+    param([string]$Path, [string]$Name)
+    $hiveName, $sub = $Path -split ':\\', 2
     $hive = if ($hiveName -eq 'HKCU') { [Microsoft.Win32.Registry]::CurrentUser } else { [Microsoft.Win32.Registry]::LocalMachine }
     try {
         $k = $hive.OpenSubKey($sub)
@@ -963,7 +1336,7 @@ function Read-RegistryValue {
     }
     if ($null -eq $k) { return [ordered]@{ Present = $false; Value = $null; Denied = $false } }
     try {
-        $v = $k.GetValue($name)
+        $v = $k.GetValue($Name)
     } finally { $k.Close() }
     if ($null -eq $v) { return [ordered]@{ Present = $false; Value = $null; Denied = $false } }
     if ($v -is [string[]]) { $v = $v -join "`n" }
@@ -972,17 +1345,17 @@ function Read-RegistryValue {
 }
 
 function Get-EndpointSnapshot {
-    # Collects every fact the checks read. Read-only.
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Thresholds',
-        Justification = 'Used inside the Services collector script block, which the rule does not follow.')]
-    param($Thresholds)
+    # Collects every fact the checks and catalogs read (see Get-CollectionTarget). Read-only.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Targets',
+        Justification = 'Used inside the collector script blocks, which the rule does not follow.')]
+    param($Targets)
     $elevated = Test-Elevated
     $os = Get-CimInstance -ClassName Win32_OperatingSystem
     $snap = [ordered]@{
         SchemaVersion = $SnapshotSchemaVersion
         Meta          = [ordered]@{
-            Tool         = 'cmmc-endpoint-scan'
-            Version      = $CmmcScanVersion
+            Tool         = 'endpoint-compliance-scan'
+            Version      = $ComplianceScanVersion
             ComputerName = $env:COMPUTERNAME
             CollectedUtc = ConvertTo-IsoDate (Get-Date)
             IsElevated   = $elevated
@@ -996,7 +1369,7 @@ function Get-EndpointSnapshot {
     $tmpDir = [IO.Path]::GetTempPath()
 
     Invoke-Collector $snap 'SecurityPolicy' $elevated -RequiresAdmin {
-        $tmp = Join-Path $tmpDir ("cmmc-secpol-{0}.inf" -f [guid]::NewGuid())
+        $tmp = Join-Path $tmpDir ("compliance-secpol-{0}.inf" -f [guid]::NewGuid())
         try {
             $null = & secedit.exe /export /cfg $tmp /areas SECURITYPOLICY /quiet
             if ($LASTEXITCODE -ne 0) { throw "secedit /export exited with $LASTEXITCODE." }
@@ -1017,7 +1390,7 @@ function Get-EndpointSnapshot {
     }
 
     Invoke-Collector $snap 'AuditPolicy' $elevated -RequiresAdmin {
-        $tmp = Join-Path $tmpDir ("cmmc-audit-{0}.csv" -f [guid]::NewGuid())
+        $tmp = Join-Path $tmpDir ("compliance-audit-{0}.csv" -f [guid]::NewGuid())
         try {
             $null = & auditpol.exe /backup "/file:$tmp"
             if ($LASTEXITCODE -ne 0) { throw "auditpol /backup exited with $LASTEXITCODE." }
@@ -1038,18 +1411,38 @@ function Get-EndpointSnapshot {
 
     Invoke-Collector $snap 'Registry' $elevated {
         $out = [ordered]@{}
-        foreach ($key in Get-RegistryTarget) { $out[$key] = Read-RegistryValue $key }
+        foreach ($key in @($Targets.Registry.Keys)) {
+            $t = $Targets.Registry[$key]
+            $out[$key] = Read-RegistryValue -Path $t.Path -Name $t.Name
+        }
         $out
     }
 
     Invoke-Collector $snap 'Services' $elevated {
         $out = [ordered]@{}
-        foreach ($n in @(@($Thresholds.NonessentialServices) + 'W32Time' | Select-Object -Unique)) {
+        foreach ($n in @($Targets.Services)) {
             $svc = Get-Service -Name $n -ErrorAction SilentlyContinue
             if ($svc) {
                 $out[$n] = [ordered]@{ Present = $true; StartType = "$($svc.StartType)"; Status = "$($svc.Status)" }
             } else {
                 $out[$n] = [ordered]@{ Present = $false; StartType = ''; Status = '' }
+            }
+        }
+        $out
+    }
+
+    Invoke-Collector $snap 'Features' $elevated -RequiresAdmin {
+        if (-not (Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue)) {
+            throw [System.NotSupportedException]::new('Get-WindowsOptionalFeature is not available.')
+        }
+        $all = @{}
+        foreach ($f in @(Get-WindowsOptionalFeature -Online)) { $all["$($f.FeatureName)"] = "$($f.State)" }
+        $out = [ordered]@{}
+        foreach ($n in @($Targets.Features)) {
+            if ($all.ContainsKey($n)) {
+                $out[$n] = [ordered]@{ Present = $true; State = $all[$n] }
+            } else {
+                $out[$n] = [ordered]@{ Present = $false; State = '' }
             }
         }
         $out
@@ -1139,12 +1532,15 @@ function Get-EndpointSnapshot {
 #region Report
 
 function Write-ScanSummary {
-    param($Evaluation, $Snapshot, [int]$Level)
+    param($Evaluation, $Snapshot, $Catalog)
     $reqs = @($Evaluation.Requirements)
     $meta = Get-Prop $Snapshot 'Meta'
     Write-Host ''
     $when = (ConvertTo-DateValue $meta.CollectedUtc).ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
-    Write-Host "CMMC endpoint scan $CmmcScanVersion, Level $Level, $($meta.ComputerName), collected $when UTC"
+    Write-Host "Endpoint compliance scan ${ComplianceScanVersion}: $($Catalog.Name), level $($Evaluation.Level), $($meta.ComputerName), collected $when UTC"
+    if (-not $Catalog.Complete) {
+        Write-Host 'This catalog lists only the requirements an endpoint can show evidence for; the rest of the framework is assessed elsewhere.' -ForegroundColor Yellow
+    }
     if (-not $meta.IsElevated) { Write-Host 'Not elevated: checks that need elevation are Skipped.' -ForegroundColor Yellow }
     $order = 'Fail', 'Error', 'Skipped', 'Manual', 'Pass', 'NotApplicable'
     $counts = foreach ($s in $order) { '{0} {1}' -f @($reqs | Where-Object { $_.State -eq $s }).Count, $s }
@@ -1152,47 +1548,49 @@ function Write-ScanSummary {
     # Fixed-width rows rather than Format-Table, which renders nothing when the
     # host has no console width (a scheduled task, a CI log).
     $cols = 'Pass', 'Fail', 'Error', 'Skipped', 'Manual', 'NotApplicable'
-    Write-Host ('{0,-7}{1,6}{2,6}{3,7}{4,9}{5,8}{6,5}' -f 'Family', 'Pass', 'Fail', 'Error', 'Skipped', 'Manual', 'N/A')
+    $width = [math]::Max(7, (@($reqs | ForEach-Object { "$($_.Family)".Length }) + 0 | Measure-Object -Maximum).Maximum + 1)
+    $row = "{0,-$width}{1,6}{2,6}{3,7}{4,9}{5,8}{6,5}"
+    Write-Host ($row -f 'Family', 'Pass', 'Fail', 'Error', 'Skipped', 'Manual', 'N/A')
     foreach ($grp in @($reqs | Group-Object Family | Sort-Object Name)) {
         $n = foreach ($c in $cols) { @($grp.Group | Where-Object { $_.State -eq $c }).Count }
-        Write-Host ('{0,-7}{1,6}{2,6}{3,7}{4,9}{5,8}{6,5}' -f (@($grp.Name) + $n))
+        Write-Host ($row -f (@($grp.Name) + $n))
     }
-    # Then each requirement that needs attention, with only the checks that didn't pass.
-    $byCheck = @{}
-    foreach ($c in @($Evaluation.Checks)) { $byCheck[$c.Check] = $c }
+    # Then each requirement that needs attention, with only the evidence that didn't pass.
+    $refWidth = [math]::Max(14, (@($reqs | ForEach-Object { "$($_.Reference)".Length }) + 0 | Measure-Object -Maximum).Maximum)
     foreach ($state in 'Fail', 'Error', 'Skipped') {
         $colour = switch ($state) { 'Fail' { 'Red' } 'Error' { 'Magenta' } default { 'Yellow' } }
         foreach ($r in @($reqs | Where-Object { $_.State -eq $state })) {
-            $why = foreach ($pair in ($r.Checks -split '; ')) {
-                $name, $st = $pair -split '=', 2
-                if ($st -notin 'Pass', 'NotApplicable') { "$($name): $($byCheck[$name].Evidence)" }
-            }
-            Write-Host ('{0,-8} {1,-14} {2}' -f $state, $r.Practice, (@($why) -join ' | ')) -ForegroundColor $colour
+            Write-Host ("{0,-8} {1,-$refWidth} {2}" -f $state, $r.Reference, $r.Findings) -ForegroundColor $colour
         }
     }
 }
 
 function Export-ScanReport {
-    param($Evaluation, $Snapshot, $Thresholds, [int]$Level, [string]$Folder, [switch]$IncludeSnapshot)
+    param($Evaluation, $Snapshot, $Thresholds, $Catalog, [string]$Folder, [switch]$IncludeSnapshot)
     if (-not (Test-Path -LiteralPath $Folder)) { $null = New-Item -ItemType Directory -Path $Folder }
     $meta = Get-Prop $Snapshot 'Meta'
     $computer = "$($meta.ComputerName)" -replace '[^A-Za-z0-9-]', '_'
+    $framework = "$($Catalog.Id)".ToLowerInvariant() -replace '[^a-z0-9.-]', '_'
     $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-    $base = Join-Path $Folder "cmmc-scan-$computer-$stamp"
+    $base = Join-Path $Folder "compliance-scan-$framework-$computer-$stamp"
 
     $Evaluation.Requirements | Export-Csv -LiteralPath "$base.csv" -NoTypeInformation -Encoding UTF8
 
     $report = [ordered]@{
-        Tool         = 'cmmc-endpoint-scan'
-        Version      = $CmmcScanVersion
-        Level        = $Level
-        ComputerName = $meta.ComputerName
-        CollectedUtc = $meta.CollectedUtc
-        IsElevated   = $meta.IsElevated
-        Summary      = [ordered]@{}
-        Requirements = $Evaluation.Requirements
-        Checks       = $Evaluation.Checks
-        Thresholds   = $Thresholds
+        Tool          = 'endpoint-compliance-scan'
+        Version       = $ComplianceScanVersion
+        Framework     = $Catalog.Id
+        FrameworkName = $Catalog.Name
+        Source        = $Catalog.Source
+        Complete      = [bool]$Catalog.Complete
+        Level         = $Evaluation.Level
+        ComputerName  = $meta.ComputerName
+        CollectedUtc  = $meta.CollectedUtc
+        IsElevated    = $meta.IsElevated
+        Summary       = [ordered]@{}
+        Requirements  = $Evaluation.Requirements
+        Checks        = $Evaluation.Checks
+        Thresholds    = $Thresholds
     }
     foreach ($s in 'Fail', 'Error', 'Skipped', 'Manual', 'Pass', 'NotApplicable') {
         $report.Summary[$s] = @($Evaluation.Requirements | Where-Object { $_.State -eq $s }).Count
@@ -1209,15 +1607,17 @@ if ($MyInvocation.InvocationName -eq '.') { return }
 
 try {
     $root = $PSScriptRoot
-    $catalog = Import-PowerShellDataFile -LiteralPath (Join-Path $root 'CmmcControls.psd1')
+    $catalogs = @(Get-FrameworkCatalog (Join-Path $root 'frameworks'))
+    $catalog = Resolve-Framework $catalogs $Framework
+    $Level = Resolve-FrameworkLevel $catalog $Level
 
     $override = $ProfilePath
     if (-not $override) {
-        $local = Join-Path $root 'CmmcScan.local.psd1'
+        $local = Join-Path $root 'ComplianceScan.local.psd1'
         if (Test-Path -LiteralPath $local) { $override = $local }
     }
-    $thresholds = Get-ScanThreshold -ExamplePath (Join-Path $root 'CmmcScan.example.psd1') -OverridePath $override
-    if ($override) { Write-Verbose "Thresholds: example with $override on top." }
+    $thresholds = Get-ScanThreshold -ExamplePath (Join-Path $root 'ComplianceScan.example.psd1') -Catalog $catalog -OverridePath $override
+    if ($override) { Write-Verbose "Thresholds: example, then $($catalog.Id), then $override." }
 
     if ($FromSnapshot) {
         $snapshot = Read-Snapshot $FromSnapshot
@@ -1225,19 +1625,19 @@ try {
         if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
             throw 'A live scan needs Windows. Use -FromSnapshot to evaluate a saved snapshot elsewhere.'
         }
-        $snapshot = Get-EndpointSnapshot -Thresholds $thresholds
+        $snapshot = Get-EndpointSnapshot -Targets (Get-CollectionTarget -Catalogs $catalogs -Thresholds $thresholds)
     }
     if ($SnapshotPath) {
         $snapshot | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $SnapshotPath -Encoding UTF8
     }
 
-    $evaluation = Invoke-CmmcEvaluation -Snapshot $snapshot -Thresholds $thresholds -Catalog $catalog -Level $Level
+    $evaluation = Invoke-ComplianceEvaluation -Snapshot $snapshot -Thresholds $thresholds -Catalog $catalog -Level $Level
 
     $folder = $OutputPath
     if (-not $folder) { $folder = Join-Path $root 'Reports' }
-    $files = Export-ScanReport -Evaluation $evaluation -Snapshot $snapshot -Thresholds $thresholds -Level $Level -Folder $folder -IncludeSnapshot:$IncludeSnapshot
+    $files = Export-ScanReport -Evaluation $evaluation -Snapshot $snapshot -Thresholds $thresholds -Catalog $catalog -Folder $folder -IncludeSnapshot:$IncludeSnapshot
 
-    Write-ScanSummary -Evaluation $evaluation -Snapshot $snapshot -Level $Level
+    Write-ScanSummary -Evaluation $evaluation -Snapshot $snapshot -Catalog $catalog
     Write-Host ("Reports: " + ($files -join ', '))
     if ($PassThru) { $evaluation.Requirements }
     $code = Get-ScanExitCode $evaluation.Requirements

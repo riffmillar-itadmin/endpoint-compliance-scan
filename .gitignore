@@ -2,13 +2,17 @@
 #  Scan output names real machines and real local accounts. Keep it out.
 # ---------------------------------------------------------------------------
 Reports/
+compliance-scan-*.csv
+compliance-scan-*.json
+#  Names used before v0.2.0.
 cmmc-scan-*.csv
 cmmc-scan-*.json
+CmmcScan.local*.psd1
 *.snapshot.json
 
-#  Your own thresholds. Wildcards, so a copy ("CmmcScan.local - Copy.psd1") is
-#  covered too; the shipped example is a different name and stays tracked.
-CmmcScan.local*.psd1
+#  Your own thresholds. Wildcards, so a copy ("ComplianceScan.local - Copy.psd1")
+#  is covered too; the shipped example is a different name and stays tracked.
+ComplianceScan.local*.psd1
 
 #  Personal copies of instructions, such as CLAUDE.local.md.
 *.local*.md
