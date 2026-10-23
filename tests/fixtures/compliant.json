@@ -1,15 +1,16 @@
 {
-  "SchemaVersion": 2,
+  "SchemaVersion": 3,
   "Meta": {
     "Tool": "endpoint-compliance-scan",
-    "Version": "0.2.0",
+    "Version": "0.3.0",
     "ComputerName": "WESTMARK-PC01",
     "CollectedUtc": "2026-10-20T15:00:00.0000000Z",
     "IsElevated": true,
     "PSVersion": "5.1.26100.1",
     "OSCaption": "Microsoft Windows 11 Pro",
     "OSVersion": "10.0.26100",
-    "ProductType": 1
+    "ProductType": 1,
+    "PartOfDomain": true
   },
   "Collection": {
     "SecurityPolicy": {
@@ -17,6 +18,10 @@
       "Reason": ""
     },
     "AuditPolicy": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "UserRights": {
       "Status": "Ok",
       "Reason": ""
     },
@@ -90,6 +95,76 @@
     "{0CCE921B-69AE-11D9-BED3-505054503030}": 3,
     "{0CCE922F-69AE-11D9-BED3-505054503030}": 3,
     "{0CCE9228-69AE-11D9-BED3-505054503030}": 3
+  },
+  "UserRights": {
+    "SeNetworkLogonRight": [
+      {
+        "Sid": "S-1-5-32-544",
+        "Name": "BUILTIN\\Administrators"
+      },
+      {
+        "Sid": "S-1-5-32-555",
+        "Name": "BUILTIN\\Remote Desktop Users"
+      }
+    ],
+    "SeInteractiveLogonRight": [
+      {
+        "Sid": "S-1-5-32-544",
+        "Name": "BUILTIN\\Administrators"
+      },
+      {
+        "Sid": "S-1-5-32-545",
+        "Name": "BUILTIN\\Users"
+      }
+    ],
+    "SeBackupPrivilege": [
+      {
+        "Sid": "S-1-5-32-544",
+        "Name": "BUILTIN\\Administrators"
+      }
+    ],
+    "SeDebugPrivilege": [
+      {
+        "Sid": "S-1-5-32-544",
+        "Name": "BUILTIN\\Administrators"
+      }
+    ],
+    "SeDenyNetworkLogonRight": [
+      {
+        "Sid": "S-1-5-32-546",
+        "Name": "BUILTIN\\Guests"
+      },
+      {
+        "Sid": "S-1-5-113",
+        "Name": "NT AUTHORITY\\Local account"
+      },
+      {
+        "Sid": "S-1-5-21-1000000011-1000000012-1000000013-512",
+        "Name": "WESTMARK\\Domain Admins"
+      },
+      {
+        "Sid": "S-1-5-21-1000000011-1000000012-1000000013-519",
+        "Name": "WESTMARK\\Enterprise Admins"
+      }
+    ],
+    "SeImpersonatePrivilege": [
+      {
+        "Sid": "S-1-5-32-544",
+        "Name": "BUILTIN\\Administrators"
+      },
+      {
+        "Sid": "S-1-5-6",
+        "Name": "NT AUTHORITY\\SERVICE"
+      },
+      {
+        "Sid": "S-1-5-19",
+        "Name": "NT AUTHORITY\\LOCAL SERVICE"
+      },
+      {
+        "Sid": "S-1-5-20",
+        "Name": "NT AUTHORITY\\NETWORK SERVICE"
+      }
+    ]
   },
   "Registry": {
     "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\EnableLUA": {

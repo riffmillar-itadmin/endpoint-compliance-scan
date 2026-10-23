@@ -66,10 +66,19 @@ BeforeAll {
         throw "No satisfying value for Op '$($Expect.Op)'."
     }
 
+    function Get-IdentityEntry {
+        # A user-rights entry for one catalog identity, as the collector records it.
+        param([string]$Identity)
+        $sid = "$($IdentitySid[$Identity])".Replace('*', '1000000011-1000000012-1000000013')
+        $name = if ($Identity.Contains('\')) { $Identity } else { "WESTMARK\$Identity" }
+        [pscustomobject]@{ Sid = $sid; Name = $name }
+    }
+
     function Get-CompliantSnapshot {
         # The fixture plus a fact that meets every expectation in one catalog.
         param($For)
         $s = Get-Fixture
+        $rightsSet = @{}
         foreach ($r in @($For.Requirements | Where-Object { $_.Contains('Expect') })) {
             foreach ($e in @($r.Expect)) {
                 switch ($e.Source) {
@@ -82,6 +91,17 @@ BeforeAll {
                         $now = 0
                         if ($s.AuditPolicy.PSObject.Properties[$guid]) { $now = [int]$s.AuditPolicy.$guid }
                         Write-Fact $s.AuditPolicy $guid ($now -bor $AuditBits[$e.Setting])
+                    }
+                    'UserRight' {
+                        # The first expectation on a right replaces the fixture's holders; later ones add to them.
+                        $held = @()
+                        if ($rightsSet.ContainsKey($e.Name)) { $held = @($s.UserRights.($e.Name)) }
+                        foreach ($i in @($e.Identities)) {
+                            $first = @("$i" -split '\|')[0]
+                            if (@($held | Where-Object { Test-IdentityMatch $_ @($first) }).Count -eq 0) { $held += Get-IdentityEntry $first }
+                        }
+                        Write-Fact $s.UserRights $e.Name @($held)
+                        $rightsSet[$e.Name] = $true
                     }
                     'Service' { Write-Fact $s.Services $e.Name ([pscustomobject]@{ Present = $true; StartType = $e.StartType; Status = 'Stopped' }) }
                     'Feature' { Write-Fact $s.Features $e.Name ([pscustomobject]@{ Present = $true; State = $e.State }) }
@@ -159,6 +179,17 @@ Describe 'Every framework catalog: <Id>' -ForEach $script:FrameworkCases {
                     }
                     'Service' { $e.StartType | Should -BeIn 'Disabled', 'Manual', 'Automatic' -Because $because }
                     'Feature' { $e.State | Should -Be 'Disabled' -Because $because }
+                    'UserRight' {
+                        $e.Name | Should -Match '^Se\w+(Privilege|Right)$' -Because $because
+                        $e.Op | Should -BeIn 'only', 'includes' -Because $because
+                        $e.Contains('Identities') | Should -BeTrue -Because $because
+                        if ($e.Op -eq 'includes') { @($e.Identities).Count | Should -BeGreaterThan 0 -Because $because }
+                        foreach ($i in @($e.Identities | ForEach-Object { "$_" -split '\|' })) {
+                            $i | Should -Not -BeNullOrEmpty -Because $because
+                            # An identity without a well-known SID is matched by its full account name.
+                            if (-not $IdentitySid.ContainsKey($i)) { $i | Should -Match '\\' -Because "$because, identity '$i'" }
+                        }
+                    }
                 }
                 if ($e.Source -in 'Registry', 'SecPol') {
                     $Ops.Keys | Should -Contain $e.Op -Because $because
@@ -171,6 +202,19 @@ Describe 'Every framework catalog: <Id>' -ForEach $script:FrameworkCases {
     It 'gives every requirement without evidence a note on where to look' {
         foreach ($r in @($Fw.Requirements | Where-Object { @($_.Checks).Count -eq 0 -and -not $_.Contains('Expect') })) {
             "$($r.Note)" | Should -Not -BeNullOrEmpty -Because "requirement $($r.Id) has no checks"
+        }
+    }
+
+    It 'names the Windows it was written for in a shape the scanner reads, if it names one' {
+        if ($Fw.Id -like 'DISA-STIG-*') { $Fw.Contains('AppliesTo') | Should -BeTrue }
+        if ($Fw.Contains('AppliesTo')) {
+            $keys = @($Fw.AppliesTo.Keys)
+            $keys.Count | Should -BeGreaterThan 0
+            foreach ($k in $keys) { $k | Should -BeIn 'ProductTypes', 'Builds', 'MinBuild' }
+            $a = $Fw.AppliesTo
+            if ($a.Contains('ProductTypes')) { foreach ($t in @($a.ProductTypes)) { $t | Should -BeIn 1, 2, 3 } }
+            if ($a.Contains('Builds')) { foreach ($b in @($a.Builds)) { $b | Should -BeOfType [int] } }
+            if ($a.Contains('MinBuild')) { $a.MinBuild | Should -BeOfType [int] }
         }
     }
 
@@ -196,6 +240,12 @@ Describe 'Framework catalogs' {
         @{ Id = 'NIST-800-53r5'; Count = 287 }
         @{ Id = 'NIST-CSF-2.0'; Count = 106 }
         @{ Id = 'DISA-STIG-Win11'; Count = 282 }
+        @{ Id = 'DISA-STIG-WS2019-MS'; Count = 247 }
+        @{ Id = 'DISA-STIG-WS2019-DC'; Count = 277 }
+        @{ Id = 'DISA-STIG-WS2022-MS'; Count = 246 }
+        @{ Id = 'DISA-STIG-WS2022-DC'; Count = 276 }
+        @{ Id = 'DISA-STIG-WS2025-MS'; Count = 250 }
+        @{ Id = 'DISA-STIG-WS2025-DC'; Count = 281 }
     ) {
         @((Get-Framework $Id).Requirements).Count | Should -Be $Count
         (Get-Framework $Id).Complete | Should -BeTrue
@@ -208,6 +258,14 @@ Describe 'Framework catalogs' {
     It 'uses every check in at least one framework' {
         $used = @($Catalogs | ForEach-Object { $_.Requirements } | ForEach-Object { @($_.Checks) }) | Select-Object -Unique
         foreach ($c in (Get-CheckTable).Keys) { $used | Should -Contain $c }
+    }
+
+    It 'checks local accounts on no domain controller STIG, where there are none' {
+        foreach ($c in @($Catalogs | Where-Object { $_.Contains('AppliesTo') -and @($_.AppliesTo.ProductTypes) -contains 2 })) {
+            $table = Get-CheckTable
+            $used = @($c.Requirements | ForEach-Object { @($_.Checks) } | Where-Object { $_ })
+            foreach ($n in $used) { @($table[$n].Needs) | Should -Not -Contain 'LocalAccounts' -Because "$($c.Id) uses $n" }
+        }
     }
 
     It 'knows every audit subcategory any catalog or the example names' {
@@ -428,11 +486,24 @@ Describe 'Expectations' {
         @{ Case = 'disabled passes'; Fact = @{ Present = $true; State = 'Disabled' }; Want = 'Pass' }
         @{ Case = 'payload removed passes'; Fact = @{ Present = $true; State = 'DisabledWithPayloadRemoved' }; Want = 'Pass' }
         @{ Case = 'absent from this build passes'; Fact = @{ Present = $false; State = '' }; Want = 'Pass' }
+        @{ Case = 'enabled after a restart fails'; Fact = @{ Present = $true; State = 'EnablePending' }; Want = 'Fail' }
+        @{ Case = 'disabled after a restart fails'; Fact = @{ Present = $true; State = 'DisablePending' }; Want = 'Fail' }
+        @{ Case = 'installed Server feature fails'; Fact = @{ Present = $true; State = 'Installed' }; Want = 'Fail' }
+        @{ Case = 'Server feature installed after a restart fails'; Fact = @{ Present = $true; State = 'InstallPending' }; Want = 'Fail' }
+        @{ Case = 'Server feature removed after a restart fails'; Fact = @{ Present = $true; State = 'UninstallPending' }; Want = 'Fail' }
+        @{ Case = 'available Server feature passes'; Fact = @{ Present = $true; State = 'Available' }; Want = 'Pass' }
+        @{ Case = 'removed Server feature passes'; Fact = @{ Present = $true; State = 'Removed' }; Want = 'Pass' }
     ) {
         $s = Get-Fixture
         Write-Fact $s.Features 'SMB1Protocol' ([pscustomobject]$Fact)
         $r = Invoke-Expectation -Expect @{ Source = 'Feature'; Name = 'SMB1Protocol'; State = 'Disabled' } -Snapshot $s
         $r.State | Should -Be $Want
+    }
+
+    It 'errors a feature expectation that wants a state other than Disabled' {
+        (Test-ExpectOn @{ Source = 'Feature'; Name = 'SMB1Protocol'; State = 'Enabled' } {
+            param($s) Write-Fact $s.Features 'SMB1Protocol' ([pscustomobject]@{ Present = $true; State = 'Enabled' })
+        }).State | Should -Be 'Error'
     }
 
     It 'skips an optional feature when the features collector needed elevation' {
@@ -458,6 +529,165 @@ Describe 'Expectations' {
         $r = (Invoke-Evaluation (Get-Fixture) -Level 'One' -For $fw).Requirements[0]
         $r.State | Should -Be 'Fail'
         $r.Checks | Should -Be 'AC-UacEnabled=Pass; SecPol:PasswordComplexity=Fail'
+    }
+}
+
+Describe 'User rights' {
+    BeforeAll {
+        function Write-Holder {
+            # Replaces who holds a right in the snapshot; no identities removes it.
+            param($Snapshot, [string]$Right, [object[]]$Entry)
+            if (@($Entry).Count -eq 0) { $Snapshot.UserRights.PSObject.Properties.Remove($Right); return }
+            Write-Fact $Snapshot.UserRights $Right @($Entry)
+        }
+        function Test-Right {
+            param($Expect, [object[]]$Entry, [bool]$InDomain = $true)
+            $s = Get-Fixture
+            Write-Holder $s $Expect.Name $Entry
+            $s.Meta.PartOfDomain = $InDomain
+            Invoke-Expectation -Expect (@{ Source = 'UserRight' } + $Expect) -Snapshot $s
+        }
+        $script:Admins = Get-IdentityEntry 'Administrators'
+        $script:AuthUsers = Get-IdentityEntry 'Authenticated Users'
+        $script:Guests = Get-IdentityEntry 'Guests'
+        $script:LocalAccount = Get-IdentityEntry 'Local account'
+        $script:DomainAdmins = Get-IdentityEntry 'Domain Admins'
+        $script:EnterpriseAdmins = Get-IdentityEntry 'Enterprise Admins'
+    }
+
+    It 'passes only when everyone holding the right is allowed' {
+        $e = @{ Name = 'SeNetworkLogonRight'; Op = 'only'; Identities = @('Administrators', 'Authenticated Users') }
+        (Test-Right $e @($Admins, $AuthUsers)).State | Should -Be 'Pass'
+        (Test-Right $e @($Admins)).State | Should -Be 'Pass'
+        $r = Test-Right $e @($Admins, $Guests)
+        $r.State | Should -Be 'Fail'
+        $r.Evidence | Should -Match 'WESTMARK\\Guests'
+        $r.Evidence | Should -Match 'allowed: only Administrators, Authenticated Users'
+    }
+
+    It 'passes a right no one may hold only when no one holds it' {
+        $e = @{ Name = 'SeTcbPrivilege'; Op = 'only'; Identities = @() }
+        $r = Test-Right $e @()
+        $r.State | Should -Be 'Pass'
+        $r.Evidence | Should -Match 'assigned to no one'
+        (Test-Right $e @($Admins)).State | Should -Be 'Fail'
+    }
+
+    It 'matches well-known identities by SID, whatever the display language' {
+        $e = @{ Name = 'SeDebugPrivilege'; Op = 'only'; Identities = @('Administrators') }
+        (Test-Right $e @([pscustomobject]@{ Sid = 'S-1-5-32-544'; Name = 'VORDEFINIERT\Administratoren' })).State | Should -Be 'Pass'
+        (Test-Right $e @([pscustomobject]@{ Sid = 'S-1-5-21-1-2-3-1001'; Name = 'WESTMARK\Administrators' })).State | Should -Be 'Fail'
+    }
+
+    It 'matches an identity without a well-known SID by account name' {
+        $e = @{ Name = 'SeImpersonatePrivilege'; Op = 'only'; Identities = @('Administrators', 'RESTRICTED SERVICES\PrintSpoolerService') }
+        $spooler = [pscustomobject]@{ Sid = 'S-1-5-99-1-2-3'; Name = 'RESTRICTED SERVICES\PrintSpoolerService' }
+        (Test-Right $e @($Admins, $spooler)).State | Should -Be 'Pass'
+    }
+
+    It 'fails, never passes, a holder whose SID no longer resolves' {
+        $e = @{ Name = 'SeBackupPrivilege'; Op = 'only'; Identities = @('Administrators') }
+        $r = Test-Right $e @($Admins, [pscustomobject]@{ Sid = 'S-1-5-21-1-2-3-4444'; Name = '' })
+        $r.State | Should -Be 'Fail'
+        $r.Evidence | Should -Match 'S-1-5-21-1-2-3-4444'
+    }
+
+    It 'fails includes when a required identity is missing' {
+        $e = @{ Name = 'SeDenyNetworkLogonRight'; Op = 'includes'; Identities = @('Guests', 'Local account') }
+        (Test-Right $e @($Guests, $LocalAccount, $Admins)).State | Should -Be 'Pass'
+        $r = Test-Right $e @($Guests)
+        $r.State | Should -Be 'Fail'
+        $r.Evidence | Should -Match 'missing: Local account'
+        (Test-Right $e @()).State | Should -Be 'Fail'
+    }
+
+    It 'accepts either identity of an alternative' {
+        $e = @{ Name = 'SeDenyNetworkLogonRight'; Op = 'includes'; Identities = @('Local account and member of Administrators group|Local account') }
+        (Test-Right $e @($LocalAccount)).State | Should -Be 'Pass'
+        (Test-Right $e @(Get-IdentityEntry 'Local account and member of Administrators group')).State | Should -Be 'Pass'
+        $r = Test-Right $e @($Guests)
+        $r.State | Should -Be 'Fail'
+        $r.Evidence | Should -Match 'Local account and member of Administrators group or Local account'
+    }
+
+    It 'requires domain groups on a domain member and waives them elsewhere' {
+        $e = @{ Name = 'SeDenyNetworkLogonRight'; Op = 'includes'; Identities = @('Enterprise Admins', 'Domain Admins', 'Guests') }
+        (Test-Right $e @($Guests) -InDomain $true).State | Should -Be 'Fail'
+        (Test-Right $e @($Guests, $DomainAdmins, $EnterpriseAdmins) -InDomain $true).State | Should -Be 'Pass'
+        $r = Test-Right $e @($Guests) -InDomain $false
+        $r.State | Should -Be 'Pass'
+        $r.Evidence | Should -Match 'not required outside a domain'
+    }
+
+    It 'errors includes when the snapshot does not say whether the machine is in a domain' {
+        $s = Get-Fixture
+        $s.Meta.PSObject.Properties.Remove('PartOfDomain')
+        $r = Invoke-Expectation -Expect @{ Source = 'UserRight'; Name = 'SeDenyNetworkLogonRight'; Op = 'includes'; Identities = @('Guests') } -Snapshot $s
+        $r.State | Should -Be 'Error'
+    }
+
+    It 'errors an unknown operator' {
+        (Test-Right @{ Name = 'SeDebugPrivilege'; Op = 'exactly'; Identities = @('Administrators') } @($Admins)).State | Should -Be 'Error'
+    }
+
+    It 'skips, never passes, user rights a non-elevated run could not collect' {
+        $s = Get-Fixture
+        $s.Collection.UserRights.Status = 'Skipped'
+        $s.Collection.UserRights.Reason = 'Needs an elevated session.'
+        $s.UserRights = $null
+        $r = Invoke-Expectation -Expect @{ Source = 'UserRight'; Name = 'SeTcbPrivilege'; Op = 'only'; Identities = @() } -Snapshot $s
+        $r.State | Should -Be 'Skipped'
+    }
+}
+
+Describe 'Platform' {
+    It 'warns nothing when the catalog fits the snapshot or names no platform' {
+        Get-PlatformMismatch (Get-Framework 'DISA-STIG-Win11') (Get-Fixture) | Should -BeNullOrEmpty
+        Get-PlatformMismatch $Catalog (Get-Fixture) | Should -BeNullOrEmpty
+    }
+
+    It 'warns when a Server STIG meets client Windows' {
+        $w = Get-PlatformMismatch (Get-Framework 'DISA-STIG-WS2022-MS') (Get-Fixture)
+        $w | Should -Match 'DISA-STIG-WS2022-MS'
+        $w | Should -Match 'build 20348'
+        $w | Should -Match 'is client Windows, build 26100'
+    }
+
+    It 'warns when the member server STIG meets a domain controller of the right build' {
+        $s = Get-Fixture
+        $s.Meta.ProductType = 2
+        $s.Meta.OSVersion = '10.0.20348'
+        Get-PlatformMismatch (Get-Framework 'DISA-STIG-WS2022-DC') $s | Should -BeNullOrEmpty
+        Get-PlatformMismatch (Get-Framework 'DISA-STIG-WS2022-MS') $s | Should -Match 'is a domain controller'
+    }
+
+    It 'warns when the build is older than the catalog allows' {
+        $s = Get-Fixture
+        $s.Meta.OSVersion = '10.0.19045'
+        Get-PlatformMismatch (Get-Framework 'DISA-STIG-Win11') $s | Should -Match 'build 22000 or later'
+    }
+
+    It 'warns when the snapshot does not say which Windows it came from' {
+        $s = Get-Fixture
+        $s.Meta.OSVersion = ''
+        Get-PlatformMismatch (Get-Framework 'DISA-STIG-Win11') $s | Should -Match 'does not say|doesn''t say'
+    }
+
+    It 'carries the warning in the evaluation' {
+        (Invoke-Evaluation (Get-Fixture) -Level $null -For (Get-Framework 'DISA-STIG-WS2025-DC')).PlatformWarning | Should -Match 'DISA-STIG-WS2025-DC'
+    }
+
+    It 'reports local-account checks as NotApplicable on a domain controller' {
+        $s = Get-Fixture
+        $s.Collection.LocalAccounts.Status = 'NotApplicable'
+        $s.Collection.LocalAccounts.Reason = 'A domain controller has no local accounts; review domain accounts in Active Directory.'
+        $s.LocalAccounts = $null
+        foreach ($c in 'AC-GuestDisabled', 'AC-NoPasswordNotRequired', 'AC-LocalAdminCount') {
+            $r = Get-CheckState $s $c
+            $r.State | Should -Be 'NotApplicable' -Because $c
+            $r.Evidence | Should -Match 'domain controller'
+        }
+        Get-ScanExitCode (Invoke-Evaluation $s).Requirements | Should -Be 0
     }
 }
 
@@ -794,6 +1024,19 @@ Describe 'Running the script on a saved snapshot' {
         $json = Get-Content -LiteralPath (Get-ChildItem -LiteralPath $out -Filter '*.json')[0].FullName -Raw | ConvertFrom-Json
         $json.Complete | Should -BeFalse
         @($json.Requirements).Count | Should -Be 22
+    }
+
+    It 'warns, and says so in the report, when the framework is for another Windows' {
+        $s = Get-CompliantSnapshot (Get-Framework 'DISA-STIG-WS2019-MS')
+        $path = Join-Path $TestDrive 'ws2019.json'
+        $s | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path
+        $out = Join-Path $TestDrive 'ws2019'
+        $ErrorActionPreference = 'Continue'
+        $output = & $Exe -NoProfile -NonInteractive -File $ScriptPath -Framework disa-stig-ws2019-ms -FromSnapshot $path -OutputPath $out 2>&1
+        "$output" | Should -Match 'build 17763'
+        $json = Get-Content -LiteralPath (Get-ChildItem -LiteralPath $out -Filter '*.json')[0].FullName -Raw | ConvertFrom-Json
+        $json.PlatformWarning | Should -Match 'DISA-STIG-WS2019-MS is written for Windows Server'
+        $LASTEXITCODE | Should -Be 0
     }
 
     It 'exits 2 and lists the frameworks when none is chosen' {

@@ -13,6 +13,9 @@ the script itself doesn't change unless a requirement needs a new named check.
 | `nist-800-53r5.psd1` | NIST's OSCAL catalog and SP 800-53B baseline profiles, release 5.2.0 | The 287 controls and enhancements in the Moderate baseline, 149 of them also in Low |
 | `nist-csf-2.0.psd1` | NIST's OSCAL CSF 2.0 catalog | All 106 subcategories |
 | `disa-stig-win11.psd1` | DISA Windows 11 STIG V2R7, as processed by Microsoft's [PowerStig](https://github.com/microsoft/PowerStig) (MIT) | All 282 rules by Vuln ID; titles are short summaries, so STIG Viewer has the full text |
+| `disa-stig-ws2019-ms.psd1`, `disa-stig-ws2019-dc.psd1` | DISA Windows Server 2019 STIG V3R8, member server and domain controller, from PowerStig | All 247 and 277 rules |
+| `disa-stig-ws2022-ms.psd1`, `disa-stig-ws2022-dc.psd1` | DISA Windows Server 2022 STIG V2R8, member server and domain controller, from PowerStig | All 246 and 276 rules |
+| `disa-stig-ws2025-ms.psd1`, `disa-stig-ws2025-dc.psd1` | DISA Windows Server 2025 STIG V1R1, member server and domain controller, from PowerStig | All 250 and 281 rules |
 | `cis-controls-v8.1.psd1` | CIS Critical Security Controls v8.1 | Partial: the 18 IG1/IG2 safeguards an endpoint can show evidence for |
 | `pci-dss-4.0.1.psd1` | PCI DSS v4.0.1 | Partial: the 22 requirements an endpoint can show evidence for |
 | `hipaa-security-rule.psd1` | 45 CFR Part 164, Subpart C | Partial: all of 164.312, plus the endpoint-relevant specifications of 164.308 and 164.310 |
@@ -33,6 +36,8 @@ wording.
     Levels         = @('L1', 'L2')           # in order; a level includes the ones before it
     Complete       = $true                   # $false: the catalog is a subset, and reports say so
     PracticeFormat = '{Family}.{Level}-{Id}' # optional: how the Reference column is built (default '{Id}')
+    StigId         = 'MS_Windows_..._STIG'   # optional: the STIG's benchmark ID, for STIG catalogs
+    AppliesTo      = @{ ProductTypes = @(3); Builds = @(20348) }  # optional: the Windows it is written for
     Thresholds     = @{ MinPasswordLength = 14 }  # optional: overrides ComplianceScan.example.psd1
     Requirements   = @(
         @{
@@ -49,6 +54,16 @@ wording.
 }
 ```
 
+`AppliesTo` names the Windows a catalog is written for. The scan warns, and the
+report says so, when the machine is another. A catalog without it applies to
+any Windows. Every key is optional:
+
+| Key | Meaning |
+| --- | --- |
+| `ProductTypes` | `1` client Windows, `2` domain controller, `3` Windows Server that isn't a domain controller |
+| `Builds` | OS build numbers, such as 17763 (Server 2019), 20348 (Server 2022) and 26100 (Server 2025) |
+| `MinBuild` | The lowest build, such as 22000 for Windows 11 |
+
 A requirement with neither `Checks` nor `Expect` is Manual and must have a
 `Note`. Otherwise its state is the worst of its checks and expectations.
 
@@ -63,10 +78,11 @@ Each expectation is one setting with a required value.
 | Source | Fields | Reads |
 | --- | --- | --- |
 | `Registry` | `Path` (`HKLM:\...` or `HKCU:\...`), `Name`, an operator | The registry value. Unset fails, unless `AbsentOk = $true`. `HKCU` is the scanning user's hive. |
-| `SecPol` | `Name` (a `[System Access]` key from `secedit /export`), an operator | The local security policy. Undefined fails. |
+| `SecPol` | `Name` (a `[System Access]` key from `secedit /export`, or a `[Kerberos Policy]` key, which Windows exports only on a domain controller), an operator | The local security policy. Undefined fails. |
 | `Audit` | `Subcategory` (English name), `Setting` (`Success`, `Failure` or `SuccessAndFailure`) | Advanced audit policy, matched by GUID, so any display language works |
+| `UserRight` | `Name` (a right such as `SeNetworkLogonRight`), `Op` (`only` or `includes`), `Identities` | Who holds the right, from `secedit /export`. Needs elevation. Below. |
 | `Service` | `Name`, `StartType` | The service's start type. A service that isn't installed passes. |
-| `Feature` | `Name`, `State = 'Disabled'` | A Windows optional feature. One this Windows build doesn't have passes. Needs elevation. |
+| `Feature` | `Name`, `State = 'Disabled'` | A Windows optional feature, or on Windows Server a role or feature (the `Get-WindowsFeature` name). Installed or enabled fails, including a change waiting on a restart; anything else passes, as does a feature this Windows doesn't offer. Needs elevation. |
 
 Operators for `Registry` and `SecPol`:
 
@@ -81,6 +97,22 @@ Operators for `Registry` and `SecPol`:
 
 `Also = @(...)` lists extra values that pass, for example `Also = @(0, -1)` on a
 lockout duration where 0 and -1 mean "until an administrator unlocks it".
+
+### User rights
+
+`Op = 'only'` passes when everyone holding the right is in `Identities`; an
+empty `Identities` means no one may hold it. `Op = 'includes'` passes when each
+of `Identities` holds it, whoever else does. An entry `'A|B'` is satisfied by
+either.
+
+Identities are matched by well-known SID where there is one (Administrators,
+Users, Guests, Remote Desktop Users, Authenticated Users, Service, Local Service,
+Network Service, Local account, Local account and member of Administrators group,
+Enterprise Domain Controllers, NT Virtual Machine\Virtual Machines, Domain Admins,
+Enterprise Admins), and otherwise by the full account name, such as
+`RESTRICTED SERVICES\PrintSpoolerService`. Domain Admins and Enterprise Admins
+are matched in any domain, and `includes` doesn't require them on a machine
+outside a domain. A holder whose SID no longer resolves fails `only`.
 
 The test suite checks every catalog's shape, and checks that a snapshot meeting
 every expectation in it passes, so a malformed catalog fails CI rather than a

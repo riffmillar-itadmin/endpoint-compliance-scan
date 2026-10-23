@@ -58,8 +58,11 @@ jobs:
     # Proves the collectors run on real Windows under each edition, then
     # evaluates that one snapshot against every framework. Exit 0 or 1 (findings
     # on a stock runner are expected) passes; 2 means a collector or check
-    # errored, and fails the job.
-    runs-on: windows-latest
+    # errored, and fails the job. The runner is pinned to Windows Server 2025, a
+    # standalone server rather than a domain controller, so it scans with the
+    # member server STIG. The other STIG catalogs warn that they were written for
+    # another Windows, which is expected here.
+    runs-on: windows-2025
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -71,14 +74,14 @@ jobs:
       - name: Scan the runner
         shell: cmd
         run: |
-          ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-Win11 -OutputPath "%RUNNER_TEMP%\scan" -SnapshotPath "%RUNNER_TEMP%\runner.snapshot.json"
+          ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2025-MS -OutputPath "%RUNNER_TEMP%\scan" -SnapshotPath "%RUNNER_TEMP%\runner.snapshot.json"
           if %ERRORLEVEL% GEQ 2 exit /b 1
           exit /b 0
 
       - name: Evaluate the snapshot against every framework
         shell: cmd
         run: |
-          for %%F in (CMMC NIST-800-171r3 NIST-800-53r5 NIST-CSF-2.0 DISA-STIG-Win11 CIS-v8.1 PCI-DSS-4.0.1 HIPAA) do (
+          for %%F in (CMMC NIST-800-171r3 NIST-800-53r5 NIST-CSF-2.0 DISA-STIG-Win11 DISA-STIG-WS2019-MS DISA-STIG-WS2019-DC DISA-STIG-WS2022-MS DISA-STIG-WS2022-DC DISA-STIG-WS2025-MS DISA-STIG-WS2025-DC CIS-v8.1 PCI-DSS-4.0.1 HIPAA) do (
             ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\Invoke-EndpointComplianceScan.ps1 -Framework %%F -FromSnapshot "%RUNNER_TEMP%\runner.snapshot.json" -OutputPath "%RUNNER_TEMP%\scan"
             if errorlevel 2 exit /b 1
           )
