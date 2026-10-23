@@ -399,6 +399,10 @@ Describe 'Running the script on a saved snapshot' {
     }
 
     It 'exits 2 when the snapshot cannot be read' {
+        # The script writes its error to stderr. Under the Stop preference the
+        # dot-sourced script sets, Windows PowerShell 5.1 turns a native command's
+        # stderr into a terminating error, so relax it for this call.
+        $ErrorActionPreference = 'Continue'
         $null = & $Exe -NoProfile -NonInteractive -File $ScriptPath -FromSnapshot (Join-Path $TestDrive 'missing.json') -OutputPath (Join-Path $TestDrive 'err') 2>&1
         $LASTEXITCODE | Should -Be 2
     }
