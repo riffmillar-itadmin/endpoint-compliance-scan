@@ -712,7 +712,7 @@ function Get-CheckTable {
                 if ($def -and $def.AMServiceEnabled -and $def.RealTimeProtectionEnabled) {
                     return New-CheckResult Pass 'Microsoft Defender real-time protection is on.'
                 }
-                $third = @(Get-ThirdPartyAntivirus $S | Where-Object { $_.Enabled })
+                $third = @(Get-ThirdPartyAvProduct $S | Where-Object { $_.Enabled })
                 if ($third.Count -gt 0) {
                     return New-CheckResult Pass ('On, as reported to Security Center: ' + (($third | ForEach-Object { $_.DisplayName }) -join ', '))
                 }
@@ -734,7 +734,7 @@ function Get-CheckTable {
                     if ($age -le $T.MaxSignatureAgeDays) { return New-CheckResult Pass $ev }
                     return New-CheckResult Fail $ev
                 }
-                $third = @(Get-ThirdPartyAntivirus $S | Where-Object { $_.Enabled })
+                $third = @(Get-ThirdPartyAvProduct $S | Where-Object { $_.Enabled })
                 if ($third.Count -gt 0) {
                     $stale = @($third | Where-Object { -not $_.UpToDate })
                     if ($stale.Count -gt 0) {
@@ -761,7 +761,7 @@ function Get-CheckTable {
                     if ($age -le $T.MaxDaysSinceScan) { return New-CheckResult Pass $ev }
                     return New-CheckResult Fail $ev
                 }
-                $third = @(Get-ThirdPartyAntivirus $S | Where-Object { $_.Enabled })
+                $third = @(Get-ThirdPartyAvProduct $S | Where-Object { $_.Enabled })
                 if ($third.Count -gt 0) {
                     return New-CheckResult Manual ('Third-party antivirus: ' + (($third | ForEach-Object { $_.DisplayName }) -join ', ')) 'Scan history is in that product''s console.'
                 }
@@ -771,7 +771,7 @@ function Get-CheckTable {
     }
 }
 
-function Get-ThirdPartyAntivirus {
+function Get-ThirdPartyAvProduct {
     # Security Center entries other than Defender, with productState decoded:
     # bit 0x1000 = real-time on, bit 0x10 = signatures out of date.
     param($Snapshot)
