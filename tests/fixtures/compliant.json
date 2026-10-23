@@ -1,0 +1,342 @@
+{
+  "SchemaVersion": 1,
+  "Meta": {
+    "Tool": "cmmc-endpoint-scan",
+    "Version": "0.1.0",
+    "ComputerName": "WESTMARK-PC01",
+    "CollectedUtc": "2026-10-20T15:00:00.0000000Z",
+    "IsElevated": true,
+    "PSVersion": "5.1.26100.1",
+    "OSCaption": "Microsoft Windows 11 Pro",
+    "OSVersion": "10.0.26100",
+    "ProductType": 1
+  },
+  "Collection": {
+    "SecurityPolicy": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "AuditPolicy": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "Registry": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "Services": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "Smb": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "Firewall": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "Defender": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "SecurityCenter": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "BitLocker": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "LocalAccounts": {
+      "Status": "Ok",
+      "Reason": ""
+    },
+    "Hotfix": {
+      "Status": "Ok",
+      "Reason": ""
+    }
+  },
+  "SecurityPolicy": {
+    "MinimumPasswordAge": 1,
+    "MaximumPasswordAge": 60,
+    "MinimumPasswordLength": 14,
+    "PasswordComplexity": 1,
+    "PasswordHistorySize": 24,
+    "LockoutBadCount": 5,
+    "ResetLockoutCount": 15,
+    "LockoutDuration": 15,
+    "RequireLogonToChangePassword": 0,
+    "ForceLogoffWhenHourExpire": 0,
+    "NewAdministratorName": "\"WestAdmin\"",
+    "NewGuestName": "\"Guest\"",
+    "ClearTextPassword": 0,
+    "LSAAnonymousNameLookup": 0,
+    "EnableAdminAccount": 0,
+    "EnableGuestAccount": 0
+  },
+  "AuditPolicy": {
+    "{0CCE923F-69AE-11D9-BED3-505054503030}": 3,
+    "{0CCE9237-69AE-11D9-BED3-505054503030}": 3,
+    "{0CCE9235-69AE-11D9-BED3-505054503030}": 3,
+    "{0CCE922B-69AE-11D9-BED3-505054503030}": 3,
+    "{0CCE9217-69AE-11D9-BED3-505054503030}": 3,
+    "{0CCE9215-69AE-11D9-BED3-505054503030}": 3,
+    "{0CCE9216-69AE-11D9-BED3-505054503030}": 3,
+    "{0CCE921B-69AE-11D9-BED3-505054503030}": 3,
+    "{0CCE922F-69AE-11D9-BED3-505054503030}": 3,
+    "{0CCE9228-69AE-11D9-BED3-505054503030}": 3
+  },
+  "Registry": {
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\EnableLUA": {
+      "Present": true,
+      "Value": 1,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\PromptOnSecureDesktop": {
+      "Present": true,
+      "Value": 1,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\LegalNoticeCaption": {
+      "Present": true,
+      "Value": "Authorized use only",
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\LegalNoticeText": {
+      "Present": true,
+      "Value": "This system is for authorized use only. Activity is monitored.",
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\InactivityTimeoutSecs": {
+      "Present": true,
+      "Value": 900,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\fDenyTSConnections": {
+      "Present": true,
+      "Value": 0,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\\fDenyTSConnections": {
+      "Present": false,
+      "Value": null,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\\UserAuthentication": {
+      "Present": true,
+      "Value": 1,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\\UserAuthentication": {
+      "Present": false,
+      "Value": null,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server\\WinStations\\RDP-Tcp\\MaxIdleTime": {
+      "Present": false,
+      "Value": null,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services\\MaxIdleTime": {
+      "Present": true,
+      "Value": 900000,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\NoLMHash": {
+      "Present": true,
+      "Value": 1,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\LmCompatibilityLevel": {
+      "Present": true,
+      "Value": 5,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\FipsAlgorithmPolicy\\Enabled": {
+      "Present": true,
+      "Value": 1,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer\\AlwaysInstallElevated": {
+      "Present": false,
+      "Value": null,
+      "Denied": false
+    },
+    "HKCU:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer\\AlwaysInstallElevated": {
+      "Present": false,
+      "Value": null,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\SCHANNEL\\Protocols\\TLS 1.0\\Server\\Enabled": {
+      "Present": true,
+      "Value": 0,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\SCHANNEL\\Protocols\\TLS 1.0\\Client\\Enabled": {
+      "Present": true,
+      "Value": 0,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\SCHANNEL\\Protocols\\TLS 1.1\\Server\\Enabled": {
+      "Present": true,
+      "Value": 0,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\SCHANNEL\\Protocols\\TLS 1.1\\Client\\Enabled": {
+      "Present": true,
+      "Value": 0,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\RemovableStorageDevices\\Deny_All": {
+      "Present": false,
+      "Value": null,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\RemovableStorageDevices\\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}\\Deny_Write": {
+      "Present": true,
+      "Value": 1,
+      "Denied": false
+    },
+    "HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\EventLog\\Security\\MaxSize": {
+      "Present": true,
+      "Value": 196608,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\EventLog\\Security\\MaxSize": {
+      "Present": true,
+      "Value": 20971520,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\W32Time\\Parameters\\Type": {
+      "Present": true,
+      "Value": "NT5DS",
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters\\SMB1": {
+      "Present": true,
+      "Value": 0,
+      "Denied": false
+    },
+    "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\mrxsmb10\\Start": {
+      "Present": false,
+      "Value": null,
+      "Denied": false
+    }
+  },
+  "Services": {
+    "RemoteRegistry": {
+      "Present": true,
+      "StartType": "Disabled",
+      "Status": "Stopped"
+    },
+    "TlntSvr": {
+      "Present": false,
+      "StartType": "",
+      "Status": ""
+    },
+    "SNMP": {
+      "Present": false,
+      "StartType": "",
+      "Status": ""
+    },
+    "FTPSVC": {
+      "Present": false,
+      "StartType": "",
+      "Status": ""
+    },
+    "simptcp": {
+      "Present": false,
+      "StartType": "",
+      "Status": ""
+    },
+    "W32Time": {
+      "Present": true,
+      "StartType": "Automatic",
+      "Status": "Running"
+    }
+  },
+  "Smb": {
+    "ServerEnabled": false,
+    "Source": "Get-SmbServerConfiguration"
+  },
+  "Firewall": [
+    {
+      "Name": "Domain",
+      "Enabled": "True",
+      "DefaultInboundAction": "Block"
+    },
+    {
+      "Name": "Private",
+      "Enabled": "True",
+      "DefaultInboundAction": "Block"
+    },
+    {
+      "Name": "Public",
+      "Enabled": "True",
+      "DefaultInboundAction": "Block"
+    }
+  ],
+  "Defender": {
+    "AMServiceEnabled": true,
+    "AntivirusEnabled": true,
+    "RealTimeProtectionEnabled": true,
+    "AMRunningMode": "Normal",
+    "AntivirusSignatureLastUpdated": "2026-10-20T03:12:00.0000000Z",
+    "QuickScanEndTime": "2026-10-19T12:30:00.0000000Z",
+    "FullScanEndTime": "2026-10-04T02:00:00.0000000Z"
+  },
+  "SecurityCenter": [
+    {
+      "DisplayName": "Windows Defender",
+      "ProductState": 397568
+    }
+  ],
+  "BitLocker": {
+    "MountPoint": "C:",
+    "ProtectionStatus": "On"
+  },
+  "LocalAccounts": {
+    "Users": [
+      {
+        "Name": "WestAdmin",
+        "Sid": "S-1-5-21-1000000001-1000000002-1000000003-500",
+        "Enabled": false,
+        "PasswordRequired": true
+      },
+      {
+        "Name": "Guest",
+        "Sid": "S-1-5-21-1000000001-1000000002-1000000003-501",
+        "Enabled": false,
+        "PasswordRequired": false
+      },
+      {
+        "Name": "DefaultAccount",
+        "Sid": "S-1-5-21-1000000001-1000000002-1000000003-503",
+        "Enabled": false,
+        "PasswordRequired": false
+      },
+      {
+        "Name": "WDAGUtilityAccount",
+        "Sid": "S-1-5-21-1000000001-1000000002-1000000003-504",
+        "Enabled": false,
+        "PasswordRequired": true
+      },
+      {
+        "Name": "tech01",
+        "Sid": "S-1-5-21-1000000001-1000000002-1000000003-1001",
+        "Enabled": true,
+        "PasswordRequired": true
+      }
+    ],
+    "Administrators": [
+      "WESTMARK-PC01\\tech01",
+      "WESTMARK\\Domain Admins"
+    ]
+  },
+  "Hotfix": {
+    "Count": 12,
+    "LatestKb": "KB0000001",
+    "LatestInstalledOn": "2026-10-14T00:00:00.0000000Z"
+  }
+}

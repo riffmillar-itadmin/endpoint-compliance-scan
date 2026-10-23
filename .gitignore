@@ -1,0 +1,24 @@
+# ---------------------------------------------------------------------------
+#  Scan output names real machines and real local accounts. Keep it out.
+# ---------------------------------------------------------------------------
+Reports/
+cmmc-scan-*.csv
+cmmc-scan-*.json
+*.snapshot.json
+
+#  Your own thresholds. Wildcards, so a copy ("CmmcScan.local - Copy.psd1") is
+#  covered too; the shipped example is a different name and stays tracked.
+CmmcScan.local*.psd1
+
+#  Personal copies of instructions, such as CLAUDE.local.md.
+*.local*.md
+
+# ---- editor and OS scratch ----
+*.bak
+*.tmp
+*~
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
