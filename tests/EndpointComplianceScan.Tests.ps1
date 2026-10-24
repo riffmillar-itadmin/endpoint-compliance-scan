@@ -1086,6 +1086,19 @@ Describe 'STIG Viewer checklist' {
             param($Xml, [string]$Id)
             $Xml.CHECKLIST.STIGS.iSTIG.VULN | Where-Object { ($_.STIG_DATA | Where-Object VULN_ATTRIBUTE -eq 'Vuln_Num').ATTRIBUTE_DATA -eq $Id }
         }
+        function Get-ChecklistJson {
+            param([string]$Level = 'CAT III')
+            $s = Get-Fixture
+            $s.BitLocker.ProtectionStatus = 'Off'
+            Write-RegFact $s "$TsPol\fDenyTSConnections" 1
+            $e = Invoke-Evaluation $s -Level $Level -For $StigFw
+            $c = ConvertTo-StigChecklistJson $e $s $StigFw (Read-StigBenchmark $XccdfPath) -Title 'sample'
+            [pscustomobject]@{ Result = $c; Text = $c.Json; Doc = ($c.Json | ConvertFrom-Json) }
+        }
+        function Get-JsonRule {
+            param($Doc, [string]$Id)
+            @($Doc.stigs[0].rules | Where-Object group_id -eq $Id)[0]
+        }
         function Get-VulnData {
             param($Vuln, [string]$Attribute)
             @($Vuln.STIG_DATA | Where-Object VULN_ATTRIBUTE -eq $Attribute | ForEach-Object { $_.ATTRIBUTE_DATA })
@@ -1191,6 +1204,61 @@ Describe 'STIG Viewer checklist' {
         $v.COMMENTS | Should -Match 'outside level CAT I'
     }
 
+    It 'writes a STIG Viewer 3 checklist in the layout STIG Viewer 3.8 saves' {
+        # Key names and order as STIG Viewer 3.8.1 saves a .cklb.
+        $j = Get-ChecklistJson
+        @($j.Doc.PSObject.Properties.Name) | Should -Be @('title', 'id', 'stigs', 'active', 'mode', 'has_path', 'target_data')
+        @($j.Doc.stigs[0].PSObject.Properties.Name) | Should -Be @('stig_name', 'display_name', 'stig_id', 'release_info', 'version', 'uuid', 'reference_identifier', 'size', 'rules')
+        @($j.Doc.stigs[0].rules[0].PSObject.Properties.Name) | Should -Be @(
+            'group_id_src', 'group_tree', 'group_id', 'severity', 'group_title', 'rule_id_src', 'rule_id', 'rule_version', 'rule_title',
+            'fix_text', 'weight', 'check_content', 'check_content_ref', 'classification', 'discussion', 'false_positives', 'false_negatives',
+            'documentable', 'security_override_guidance', 'potential_impacts', 'third_party_tools', 'ia_controls', 'responsibility',
+            'mitigations', 'mitigation_control', 'legacy_ids', 'ccis', 'reference_identifier', 'uuid', 'stig_uuid', 'status', 'overrides',
+            'comments', 'finding_details', 'srg_id')
+        @($j.Doc.target_data.PSObject.Properties.Name) | Should -Be @('target_type', 'host_name', 'ip_address', 'mac_address', 'fqdn', 'comments',
+            'role', 'is_web_database', 'technology_area', 'web_db_site', 'web_db_instance', 'classification')
+    }
+
+    It 'records <Id> as <Status> in the STIG Viewer 3 checklist' -ForEach @(
+        @{ Id = 'V-900001'; Status = 'not_a_finding' }
+        @{ Id = 'V-900002'; Status = 'open' }
+        @{ Id = 'V-900003'; Status = 'not_applicable' }
+        @{ Id = 'V-900004'; Status = 'not_reviewed' }
+        @{ Id = 'V-900005'; Status = 'not_reviewed' }
+    ) {
+        (Get-JsonRule (Get-ChecklistJson).Doc $Id).status | Should -Be $Status
+    }
+
+    It 'carries the STIG''s rule data and the scan in the STIG Viewer 3 checklist' {
+        $j = Get-ChecklistJson
+        $stig = $j.Doc.stigs[0]
+        $stig.stig_name | Should -Be 'Sample Westmark Security Technical Implementation Guide'
+        $stig.display_name | Should -Be 'Sample Westmark'
+        $stig.stig_id | Should -Be 'Sample_Westmark_STIG'
+        $stig.release_info | Should -Be 'Release: 3 Benchmark Date: 01 Apr 2026'
+        $stig.reference_identifier | Should -Be '9001'
+        $stig.size | Should -Be 5
+        $r = Get-JsonRule $j.Doc 'V-900001'
+        $r.rule_id_src | Should -Be 'SV-900001r1_rule'
+        $r.rule_id | Should -Be 'SV-900001r1'
+        $r.group_title | Should -Be 'User Account Control must be on.'
+        $r.srg_id | Should -Be 'SRG-OS-000001-GPOS-00001'
+        $r.group_tree[0].title | Should -Be 'SRG-OS-000001-GPOS-00001'
+        $r.check_content_ref.href | Should -Be 'Sample_Westmark_STIG.xml'
+        $r.check_content_ref.name | Should -Be 'M'
+        $r.stig_uuid | Should -Be $stig.uuid
+        $r.comments | Should -Match 'WESTMARK-PC01-20261020T150000Z'
+        $r.finding_details | Should -Match 'V-900001 Pass'
+        (Get-JsonRule $j.Doc 'V-900002').finding_details | Should -Match 'V-900002.b Fail'
+        $j.Doc.target_data.host_name | Should -Be 'WESTMARK-PC01'
+        $j.Doc.target_data.role | Should -Be 'Workstation'
+        $j.Doc.title | Should -Be 'sample'
+        # One CCI stays a list, and no legacy IDs is an empty list.
+        $j.Text | Should -Match '"ccis":\["CCI-000366"\]'
+        $j.Text | Should -Match '"legacy_ids":\[\]'
+        $j.Result.Matched | Should -Be 4
+    }
+
     It 'writes a valid checklist when the evidence holds characters XML can''t' {
         # Regression (0.4.1): a NUL in registry evidence crashed XmlWriter on a real machine.
         $s = Get-Fixture
@@ -1202,6 +1270,8 @@ Describe 'STIG Viewer checklist' {
         $x = [xml]$c.Xml
         (Get-Vuln $x 'V-900001').FINDING_DETAILS | Should -Be "V-900001 Pass: Legal noticetext ok $([char]0xD83D)$([char]0xDE00) end"
         $x.CHECKLIST.ASSET.HOST_NAME | Should -Be 'WESTMARK-PC01'
+        $j = ConvertTo-StigChecklistJson $e $s $StigFw (Read-StigBenchmark $XccdfPath) -Title 'sample'
+        (Get-JsonRule ($j.Json | ConvertFrom-Json) 'V-900001').finding_details | Should -Not -Match "$([char]0)"
     }
 
     It 'keeps text XML can hold as it is' {
@@ -1209,13 +1279,18 @@ Describe 'STIG Viewer checklist' {
         ConvertTo-XmlText $null | Should -BeExactly ''
     }
 
-    It 'writes the checklist beside the other reports and names it in the HTML' {
+    It 'writes both checklists beside the other reports and names them in the HTML' {
         $s = Get-Fixture
         $e = Invoke-Evaluation $s -Level 'CAT III' -For $StigFw
         $files = Export-ScanReport -Evaluation $e -Snapshot $s -Thresholds (Get-Threshold) -Catalog $StigFw -Folder (Join-Path $TestDrive 'ckl') -Benchmark (Read-StigBenchmark $XccdfPath)
         $ckl = @($files | Where-Object { $_ -like '*.ckl' })
         $ckl.Count | Should -Be 1
         { [xml](Get-Content -LiteralPath $ckl[0] -Raw) } | Should -Not -Throw
+        $cklb = @($files | Where-Object { $_ -like '*.cklb' })
+        $cklb.Count | Should -Be 1
+        $doc = Get-Content -LiteralPath $cklb[0] -Raw | ConvertFrom-Json
+        $doc.title | Should -Be ([IO.Path]::GetFileNameWithoutExtension($cklb[0]))
+        @($doc.stigs[0].rules).Count | Should -Be 5
         Get-Content -LiteralPath @($files | Where-Object { $_ -like '*.html' })[0] -Raw | Should -Match '4 of 5 rules'
     }
 }

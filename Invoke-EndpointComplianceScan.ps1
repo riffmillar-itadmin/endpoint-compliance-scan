@@ -47,7 +47,8 @@
         compliance-scan-<scan id>-<framework>.json          requirements, checks and thresholds
         compliance-scan-<scan id>-<framework>.records.json  flat records for Power BI
         compliance-scan-<scan id>-<framework>.html          a self-contained report
-        compliance-scan-<scan id>-<framework>.ckl           STIG Viewer checklist (STIGs, with -StigPath)
+        compliance-scan-<scan id>-<framework>.cklb          STIG Viewer 3 checklist (STIGs, with -StigPath)
+        compliance-scan-<scan id>-<framework>.ckl           STIG Viewer 2 checklist (STIGs, with -StigPath)
 
     Exit codes: 0 no Fail and no Error; 1 at least one Fail; 2 at least one Error,
     or the scan could not start. Error wins over Fail because a run with errors
@@ -80,8 +81,9 @@
 
 .PARAMETER StigPath
     The DISA STIG zip from cyber.mil, or the XCCDF file inside it, for the
-    framework being scanned. With it, a STIG scan also writes a STIG Viewer
-    checklist (.ckl) holding every rule's text and the scan's results.
+    framework being scanned. With it, a STIG scan also writes STIG Viewer
+    checklists (.cklb for STIG Viewer 3, .ckl for STIG Viewer 2) holding every
+    rule's text and the scan's results.
 
 .PARAMETER IncludeSnapshot
     Embed the snapshot in the JSON report.
@@ -127,6 +129,8 @@
     0.4.1  2026-10-24  STIG Viewer checklist: characters XML can't hold, such as
                        NUL from a registry value, no longer stop the .ckl being
                        written. Registry strings drop trailing NULs.
+    0.5.0  2026-10-24  STIG Viewer 3 checklist (.cklb) beside the .ckl, which
+                       STIG Viewer 3 doesn't open.
 #>
 
 [CmdletBinding()]
@@ -145,7 +149,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.4.1'
+$ComplianceScanVersion = '0.5.0'
 $SnapshotSchemaVersion = 3
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
@@ -2062,10 +2066,14 @@ function Read-StigBenchmark {
             $check = @(Get-Child $rule 'check')
             $checkText = ''
             $checkRef = ''
+            $checkHref = ''
             if ($check.Count -gt 0) {
                 $checkText = Get-ChildText $check[0] 'check-content'
                 $ref = @(Get-Child $check[0] 'check-content-ref')
-                if ($ref.Count -gt 0) { $checkRef = $ref[0].GetAttribute('name') }
+                if ($ref.Count -gt 0) {
+                    $checkRef = $ref[0].GetAttribute('name')
+                    $checkHref = $ref[0].GetAttribute('href')
+                }
             }
             $idents = @(Get-Child $rule 'ident')
             $reference = @(Get-Child $rule 'reference')
@@ -2074,6 +2082,7 @@ function Read-StigBenchmark {
             $rules.Add([pscustomobject]@{
                 GroupId        = $group.GetAttribute('id')
                 GroupTitle     = Get-ChildText $group 'title'
+                GroupDescription = Get-ChildText $group 'description'
                 RuleId         = $rule.GetAttribute('id')
                 Severity       = $rule.GetAttribute('severity')
                 Weight         = $rule.GetAttribute('weight')
@@ -2092,6 +2101,7 @@ function Read-StigBenchmark {
                 IAControls     = "$($parts['IAControls'])"
                 CheckContent   = $checkText
                 CheckContentRef = $checkRef
+                CheckContentHref = $checkHref
                 FixText        = Get-ChildText $rule 'fixtext'
                 TargetKey      = $targetKey
                 Cci            = @($idents | Where-Object { $_.GetAttribute('system') -like '*cci*' } | ForEach-Object { "$($_.InnerText)" })
@@ -2150,24 +2160,59 @@ function ConvertTo-XmlText {
 # Result states as STIG Viewer records them.
 $ChecklistStatus = @{ Pass = 'NotAFinding'; Fail = 'Open'; NotApplicable = 'Not_Applicable' }
 
-function ConvertTo-StigChecklist {
-    # A STIG Viewer checklist (.ckl, which STIG Viewer 2 and 3 open) with every
-    # rule of the benchmark, results filled in where the scan has one. A catalog
-    # rule split in parts (V-1.a, V-1.b) takes the worst state of its parts.
-    # Rules the scan didn't evaluate stay Not_Reviewed. Returns the XML text and
-    # how many rules matched.
+function Get-ChecklistResult {
+    # The checklist entry for each rule of the benchmark, by Vuln ID: status,
+    # finding details and comments. A catalog rule split in parts (V-1.a, V-1.b)
+    # takes the worst state of its parts. Rules the scan didn't evaluate stay
+    # Not_Reviewed and say why.
     param($Evaluation, $Snapshot, $Catalog, $Benchmark)
-    $meta = Get-Prop $Snapshot 'Meta'
+    Assert-StigBenchmark $Catalog $Benchmark
     $byVuln = @{}
     foreach ($r in @($Evaluation.Requirements)) {
         $vuln = "$($r.Requirement)" -replace '\.[a-z]$', ''
         if (-not $byVuln.ContainsKey($vuln)) { $byVuln[$vuln] = [Collections.Generic.List[object]]::new() }
         $byVuln[$vuln].Add($r)
     }
-    Assert-StigBenchmark $Catalog $Benchmark
     $catalogVulns = @($Catalog.Requirements | ForEach-Object { "$($_.Id)" -replace '\.[a-z]$', '' } | Select-Object -Unique)
     $benchVulns = @($Benchmark.Rules | ForEach-Object { $_.GroupId })
-    $role = switch ([int](Get-Prop $meta 'ProductType')) { 1 { 'Workstation' } 2 { 'Domain Controller' } 3 { 'Member Server' } default { 'None' } }
+    $scanId = Get-ScanId $Snapshot
+    $entries = @{}
+    $matched = 0
+    foreach ($rule in @($Benchmark.Rules)) {
+        $status = 'Not_Reviewed'
+        $details = ''
+        if ($byVuln.ContainsKey($rule.GroupId)) {
+            $matched++
+            $parts = @($byVuln[$rule.GroupId])
+            $state = ($parts | Sort-Object { $StateRank[$_.State] } | Select-Object -First 1).State
+            if ($ChecklistStatus.ContainsKey($state)) { $status = $ChecklistStatus[$state] }
+            $details = (@($parts | ForEach-Object { "$($_.Requirement) $($_.State): $($_.Evidence)".Trim() }) -join "`n")
+            $notes = @($parts | Where-Object { $_.Note } | ForEach-Object { $_.Note } | Select-Object -Unique)
+            $comments = "endpoint-compliance-scan $ComplianceScanVersion, $($Catalog.Id), scan ${scanId}: $state." + $(if ($notes.Count -gt 0) { ' ' + ($notes -join ' ') } else { '' })
+        } elseif ($catalogVulns -contains $rule.GroupId) {
+            $comments = "Not evaluated: outside level $($Evaluation.Level)."
+        } else {
+            $comments = "Not in the $($Catalog.Id) catalog; review it in STIG Viewer."
+        }
+        $entries[$rule.GroupId] = [pscustomobject]@{ Status = $status; Details = (ConvertTo-XmlText $details); Comments = (ConvertTo-XmlText $comments) }
+    }
+    $meta = Get-Prop $Snapshot 'Meta'
+    [pscustomobject]@{
+        Entries   = $entries
+        Rules     = @($Benchmark.Rules).Count
+        Matched   = $matched
+        Unmatched = @($catalogVulns | Where-Object { $benchVulns -notcontains $_ })
+        Role      = switch ([int](Get-Prop $meta 'ProductType')) { 1 { 'Workstation' } 2 { 'Domain Controller' } 3 { 'Member Server' } default { 'None' } }
+        HostName  = ConvertTo-XmlText "$($meta.ComputerName)"
+        Comment   = "Scan $scanId"
+    }
+}
+
+function ConvertTo-StigChecklist {
+    # A STIG Viewer 2 checklist (.ckl, XML) with every rule of the benchmark and
+    # the scan's results. Returns the XML text and the result counts.
+    param($Evaluation, $Snapshot, $Catalog, $Benchmark)
+    $result = Get-ChecklistResult $Evaluation $Snapshot $Catalog $Benchmark
     $stigRef = "$($Benchmark.Title) :: Version $($Benchmark.Version), $($Benchmark.ReleaseInfo)"
     $stigUuid = [guid]::NewGuid().ToString()
 
@@ -2180,8 +2225,8 @@ function ConvertTo-StigChecklist {
     $w.WriteComment("endpoint-compliance-scan $ComplianceScanVersion")
     $w.WriteStartElement('CHECKLIST')
     $w.WriteStartElement('ASSET')
-    foreach ($pair in @(@('ROLE', $role), @('ASSET_TYPE', 'Computing'), @('MARKING', 'CUI'), @('HOST_NAME', "$($meta.ComputerName)"),
-            @('HOST_IP', ''), @('HOST_MAC', ''), @('HOST_FQDN', ''), @('TARGET_COMMENT', "Scan $(Get-ScanId $Snapshot)"), @('TECH_AREA', ''),
+    foreach ($pair in @(@('ROLE', $result.Role), @('ASSET_TYPE', 'Computing'), @('MARKING', 'CUI'), @('HOST_NAME', $result.HostName),
+            @('HOST_IP', ''), @('HOST_MAC', ''), @('HOST_FQDN', ''), @('TARGET_COMMENT', $result.Comment), @('TECH_AREA', ''),
             @('TARGET_KEY', "$(@($Benchmark.Rules)[0].TargetKey)"), @('WEB_OR_DATABASE', 'false'), @('WEB_DB_SITE', ''), @('WEB_DB_INSTANCE', ''))) {
         $w.WriteElementString($pair[0], (ConvertTo-XmlText $pair[1]))
     }
@@ -2198,7 +2243,6 @@ function ConvertTo-StigChecklist {
         $w.WriteEndElement()
     }
     $w.WriteEndElement()
-    $matched = 0
     foreach ($rule in @($Benchmark.Rules)) {
         $w.WriteStartElement('VULN')
         $data = @(
@@ -2218,25 +2262,10 @@ function ConvertTo-StigChecklist {
             $w.WriteElementString('ATTRIBUTE_DATA', (ConvertTo-XmlText "$($pair[1])"))
             $w.WriteEndElement()
         }
-        $status = 'Not_Reviewed'
-        $details = ''
-        $comments = ''
-        if ($byVuln.ContainsKey($rule.GroupId)) {
-            $matched++
-            $parts = @($byVuln[$rule.GroupId])
-            $state = ($parts | Sort-Object { $StateRank[$_.State] } | Select-Object -First 1).State
-            if ($ChecklistStatus.ContainsKey($state)) { $status = $ChecklistStatus[$state] }
-            $details = (@($parts | ForEach-Object { "$($_.Requirement) $($_.State): $($_.Evidence)".Trim() }) -join "`n")
-            $notes = @($parts | Where-Object { $_.Note } | ForEach-Object { $_.Note } | Select-Object -Unique)
-            $comments = "endpoint-compliance-scan $ComplianceScanVersion, $($Catalog.Id), scan $(Get-ScanId $Snapshot): $state." + $(if ($notes.Count -gt 0) { ' ' + ($notes -join ' ') } else { '' })
-        } elseif ($catalogVulns -contains $rule.GroupId) {
-            $comments = "Not evaluated: outside level $($Evaluation.Level)."
-        } else {
-            $comments = "Not in the $($Catalog.Id) catalog; review it in STIG Viewer."
-        }
-        $w.WriteElementString('STATUS', $status)
-        $w.WriteElementString('FINDING_DETAILS', (ConvertTo-XmlText $details))
-        $w.WriteElementString('COMMENTS', (ConvertTo-XmlText $comments))
+        $entry = $result.Entries[$rule.GroupId]
+        $w.WriteElementString('STATUS', $entry.Status)
+        $w.WriteElementString('FINDING_DETAILS', $entry.Details)
+        $w.WriteElementString('COMMENTS', $entry.Comments)
         $w.WriteElementString('SEVERITY_OVERRIDE', '')
         $w.WriteElementString('SEVERITY_JUSTIFICATION', '')
         $w.WriteEndElement()
@@ -2251,9 +2280,100 @@ function ConvertTo-StigChecklist {
     $buffer.Dispose()
     [pscustomobject]@{
         Xml       = $text
-        Rules     = @($Benchmark.Rules).Count
-        Matched   = $matched
-        Unmatched = @($catalogVulns | Where-Object { $benchVulns -notcontains $_ })
+        Rules     = $result.Rules
+        Matched   = $result.Matched
+        Unmatched = $result.Unmatched
+    }
+}
+
+# Checklist statuses as STIG Viewer 3 writes them in a .cklb.
+$ChecklistJsonStatus = @{ NotAFinding = 'not_a_finding'; Open = 'open'; Not_Applicable = 'not_applicable'; Not_Reviewed = 'not_reviewed' }
+
+function ConvertTo-StigChecklistJson {
+    # A STIG Viewer 3 checklist (.cklb, JSON) with every rule of the benchmark and
+    # the scan's results, laid out as STIG Viewer 3.8 saves one. Returns the JSON
+    # text and the result counts.
+    param($Evaluation, $Snapshot, $Catalog, $Benchmark, [string]$Title)
+    $result = Get-ChecklistResult $Evaluation $Snapshot $Catalog $Benchmark
+    $stigUuid = [guid]::NewGuid().ToString()
+    $targetKey = "$(@($Benchmark.Rules)[0].TargetKey)"
+    $rules = foreach ($rule in @($Benchmark.Rules)) {
+        $entry = $result.Entries[$rule.GroupId]
+        [ordered]@{
+            group_id_src               = $rule.GroupId
+            group_tree                 = @([ordered]@{ id = $rule.GroupId; title = $rule.GroupTitle; description = $rule.GroupDescription })
+            group_id                   = $rule.GroupId
+            severity                   = $rule.Severity
+            group_title                = $rule.RuleTitle
+            rule_id_src                = $rule.RuleId
+            rule_id                    = $rule.RuleId -replace '_rule$', ''
+            rule_version               = $rule.RuleVersion
+            rule_title                 = $rule.RuleTitle
+            fix_text                   = $rule.FixText
+            weight                     = $rule.Weight
+            check_content              = $rule.CheckContent
+            check_content_ref          = [ordered]@{ href = $rule.CheckContentHref; name = $rule.CheckContentRef }
+            classification             = 'Unclassified'
+            discussion                 = $rule.Discussion
+            false_positives            = $rule.FalsePositives
+            false_negatives            = $rule.FalseNegatives
+            documentable               = $rule.Documentable
+            security_override_guidance = $rule.SecurityOverrideGuidance
+            potential_impacts          = $rule.PotentialImpact
+            third_party_tools          = $rule.ThirdPartyTools
+            ia_controls                = $rule.IAControls
+            responsibility             = $rule.Responsibility
+            mitigations                = $rule.Mitigations
+            mitigation_control         = $rule.MitigationControl
+            legacy_ids                 = @($rule.Legacy)
+            ccis                       = @($rule.Cci)
+            reference_identifier       = $rule.TargetKey
+            uuid                       = [guid]::NewGuid().ToString()
+            stig_uuid                  = $stigUuid
+            status                     = $ChecklistJsonStatus[$entry.Status]
+            overrides                  = [ordered]@{}
+            comments                   = $entry.Comments
+            finding_details            = $entry.Details
+            srg_id                     = $rule.GroupTitle
+        }
+    }
+    $checklist = [ordered]@{
+        title       = $Title
+        id          = [guid]::NewGuid().ToString()
+        stigs       = @([ordered]@{
+                stig_name            = $Benchmark.Title
+                display_name         = $Benchmark.Title -replace '\s*Security Technical Implementation Guide$', ''
+                stig_id              = $Benchmark.Id
+                release_info         = $Benchmark.ReleaseInfo
+                version              = $Benchmark.Version
+                uuid                 = $stigUuid
+                reference_identifier = $targetKey
+                size                 = @($rules).Count
+                rules                = @($rules)
+            })
+        active      = $true
+        mode        = 2
+        has_path    = $true
+        target_data = [ordered]@{
+            target_type     = 'Computing'
+            host_name       = $result.HostName
+            ip_address      = ''
+            mac_address     = ''
+            fqdn            = ''
+            comments        = $result.Comment
+            role            = $result.Role
+            is_web_database = $false
+            technology_area = ''
+            web_db_site     = ''
+            web_db_instance = ''
+            classification  = $null
+        }
+    }
+    [pscustomobject]@{
+        Json      = ConvertTo-Json -InputObject $checklist -Depth 8 -Compress
+        Rules     = $result.Rules
+        Matched   = $result.Matched
+        Unmatched = $result.Unmatched
     }
 }
 
@@ -2305,10 +2425,13 @@ function Export-ScanReport {
 
     $notes = @($Notice | Where-Object { $_ })
     if ($Benchmark) {
+        $cklb = ConvertTo-StigChecklistJson $Evaluation $Snapshot $Catalog $Benchmark -Title (Split-Path $base -Leaf)
+        [IO.File]::WriteAllText("$base.cklb", $cklb.Json, $utf8)
+        $files += "$base.cklb"
         $ckl = ConvertTo-StigChecklist $Evaluation $Snapshot $Catalog $Benchmark
         [IO.File]::WriteAllText("$base.ckl", $ckl.Xml, $utf8)
         $files += "$base.ckl"
-        $notes += "STIG Viewer checklist: $($ckl.Matched) of $($ckl.Rules) rules from $($Benchmark.FileName) have results; the rest are Not_Reviewed."
+        $notes += "STIG Viewer checklists (.cklb for STIG Viewer 3, .ckl for STIG Viewer 2): $($ckl.Matched) of $($ckl.Rules) rules from $($Benchmark.FileName) have results; the rest are Not_Reviewed."
         if ($ckl.Unmatched.Count -gt 0) {
             $notes += "$($ckl.Unmatched.Count) catalog rule(s) are not in $($Benchmark.FileName): $($ckl.Unmatched -join ', ')."
         }
@@ -2341,7 +2464,7 @@ try {
         $benchmark = Read-StigBenchmark $StigPath
         Assert-StigBenchmark $catalog $benchmark
     } elseif ($catalog.Contains('StigId')) {
-        $notice += 'No STIG Viewer checklist: pass the DISA STIG zip from cyber.mil with -StigPath to write one.'
+        $notice += 'No STIG Viewer checklists: pass the DISA STIG zip from cyber.mil with -StigPath to write them.'
     }
 
     $thresholds = Get-ScanThreshold -ExamplePath (Join-Path $root 'ComplianceScan.example.psd1') -Catalog $catalog -OverridePath $override

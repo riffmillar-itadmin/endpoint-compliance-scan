@@ -85,7 +85,7 @@ are read, and the report files.
 # STIG CAT I rules only, and keep the raw snapshot
 .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-Win11 -Level 'CAT I' -SnapshotPath .\pc01.snapshot.json
 
-# Windows Server 2022 member server STIG, with a STIG Viewer checklist, into a shared folder
+# Windows Server 2022 member server STIG, with STIG Viewer checklists, into a shared folder
 .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R8_STIG.zip -OutputPath \\fileserver\scans
 
 # Evaluate a saved snapshot against another framework, on any OS
@@ -121,7 +121,8 @@ computer, then time, and evaluating the same snapshot again replaces its reports
 | `.records.json` | Power BI and other tools. A flat array with one record per requirement, each repeating the scan ID, computer, collection time, OS, framework and level. |
 | `.csv` | Spreadsheets. One row per requirement. |
 | `.json` | The full record: requirements, every check's evidence, and the thresholds used. |
-| `.ckl` | STIG Viewer. Written for a STIG framework when `-StigPath` names the STIG. |
+| `.cklb` | STIG Viewer 3. Written for a STIG framework when `-StigPath` names the STIG. |
+| `.ckl` | STIG Viewer 2, and tools that read the older format. Written with the `.cklb`. |
 
 The reports name the computer and its local accounts, so treat them as internal
 records.
@@ -134,9 +135,9 @@ ending in `.records.json`. Combine the files: each record becomes a row. Group b
 `ScanId` for one scan, or by `ComputerName` and `CollectedUtc` for trends. With
 several frameworks scanned, filter on `Framework`.
 
-### STIG Viewer checklist
+### STIG Viewer checklists
 
-The catalogs hold short titles, not DISA's rule text, so a checklist needs the
+The catalogs hold short titles, not DISA's rule text, so the checklists need the
 STIG itself. Download the STIG zip from [cyber.mil](https://public.cyber.mil/stigs/downloads/)
 and pass it, or the XCCDF file inside it, with `-StigPath`:
 
@@ -144,8 +145,9 @@ and pass it, or the XCCDF file inside it, with `-StigPath`:
 .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R8_STIG.zip
 ```
 
-The `.ckl` opens in STIG Viewer 2 and 3, and STIG Viewer 3 can save it as
-`.cklb`. Every rule of the STIG is listed, along with its text:
+Open the `.cklb` in STIG Viewer 3, which doesn't open `.ckl` files. The `.ckl`
+holds the same results for STIG Viewer 2. Both list every rule of the STIG, along
+with its text:
 
 | Scan result | Checklist status |
 | --- | --- |
@@ -157,10 +159,10 @@ The `.ckl` opens in STIG Viewer 2 and 3, and STIG Viewer 3 can save it as
 
 Finding Details holds the evidence, and Comments holds the scan ID and any
 note. Where the catalog splits a rule in parts (`V-254343.a`, `.b`), the
-checklist takes the worst part. If the file shares fewer than 80% of the
+checklists take the worst part. If the file shares fewer than 80% of the
 catalog's Vuln IDs, it is another STIG or release, and the scan stops before
-collecting anything. Without `-StigPath`, a STIG scan says how to get a
-checklist and writes the other reports.
+collecting anything. Without `-StigPath`, a STIG scan says how to get the
+checklists and writes the other reports.
 
 ## Results
 
@@ -250,6 +252,7 @@ runner on both editions, evaluated against every framework.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.5.0 | 2026-10-24 | STIG Viewer 3 checklist (`.cklb`), written beside the `.ckl` when `-StigPath` names the STIG, because STIG Viewer 3 doesn't open `.ckl` files. It follows the layout STIG Viewer 3.8.1 saves. |
 | 0.4.1 | 2026-10-24 | Fix: the STIG Viewer checklist failed with "hexadecimal value 0x00, is an invalid character" when evidence held a NUL, as some registry values do. Characters XML can't hold are now dropped from the `.ckl`, and registry strings drop trailing NULs. |
 | 0.4.0 | 2026-10-24 | Reports. A self-contained HTML report, flat JSON records for Power BI, and a STIG Viewer checklist (`.ckl`) when `-StigPath` names the DISA STIG zip or XCCDF file. Reports are named by scan ID (computer and collection time), so a shared folder sorts by computer, then time. |
 | 0.3.0 | 2026-10-23 | Windows Server: DISA STIGs for Windows Server 2019, 2022 and 2025, each for member servers and domain controllers. User rights expectations and collector, added to every STIG catalog. Kerberos policy on domain controllers. Server roles and features. Each STIG catalog names its Windows edition and build, and the scan warns when the machine differs. Local-account checks are NotApplicable on a domain controller. Snapshot schema 3. |
