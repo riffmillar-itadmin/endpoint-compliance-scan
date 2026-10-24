@@ -640,6 +640,16 @@ Describe 'User rights' {
     }
 }
 
+Describe 'Registry text' {
+    It 'drops trailing NULs and turns embedded ones into line breaks' {
+        # Regression (0.4.1): NULs from the registry reached the reports.
+        ConvertTo-RegistryText "Westmark notice$([char]0)$([char]0)" | Should -BeExactly 'Westmark notice'
+        ConvertTo-RegistryText "line one$([char]0)line two$([char]0)" | Should -BeExactly "line one`nline two"
+        ConvertTo-RegistryText @("one$([char]0)", 'two') | Should -BeExactly "one`ntwo"
+        ConvertTo-RegistryText 'plain' | Should -BeExactly 'plain'
+    }
+}
+
 Describe 'Platform' {
     It 'warns nothing when the catalog fits the snapshot or names no platform' {
         Get-PlatformMismatch (Get-Framework 'DISA-STIG-Win11') (Get-Fixture) | Should -BeNullOrEmpty
@@ -1179,6 +1189,24 @@ Describe 'STIG Viewer checklist' {
         $v = Get-Vuln (Get-Checklist -Level 'CAT I').Xml 'V-900001'
         $v.STATUS | Should -Be 'Not_Reviewed'
         $v.COMMENTS | Should -Match 'outside level CAT I'
+    }
+
+    It 'writes a valid checklist when the evidence holds characters XML can''t' {
+        # Regression (0.4.1): a NUL in registry evidence crashed XmlWriter on a real machine.
+        $s = Get-Fixture
+        $s.Meta.ComputerName = "WESTMARK-PC01$([char]0)"
+        $e = Invoke-Evaluation $s -Level 'CAT III' -For $StigFw
+        $r = @($e.Requirements | Where-Object Requirement -eq 'V-900001')[0]
+        $r.Evidence = "Legal notice$([char]0)text$([char]1) ok $([char]0xD83D)$([char]0xDE00) end$([char]0xD800)"
+        $c = ConvertTo-StigChecklist $e $s $StigFw (Read-StigBenchmark $XccdfPath)
+        $x = [xml]$c.Xml
+        (Get-Vuln $x 'V-900001').FINDING_DETAILS | Should -Be "V-900001 Pass: Legal noticetext ok $([char]0xD83D)$([char]0xDE00) end"
+        $x.CHECKLIST.ASSET.HOST_NAME | Should -Be 'WESTMARK-PC01'
+    }
+
+    It 'keeps text XML can hold as it is' {
+        ConvertTo-XmlText "a`tb`r`nc & <d>" | Should -BeExactly "a`tb`r`nc & <d>"
+        ConvertTo-XmlText $null | Should -BeExactly ''
     }
 
     It 'writes the checklist beside the other reports and names it in the HTML' {

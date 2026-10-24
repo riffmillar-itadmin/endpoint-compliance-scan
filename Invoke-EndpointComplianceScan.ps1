@@ -124,6 +124,9 @@
     0.4.0  2026-10-24  Reports: a self-contained HTML report, flat JSON records
                        for Power BI, and a STIG Viewer checklist (.ckl) with
                        -StigPath. Reports are named by scan ID.
+    0.4.1  2026-10-24  STIG Viewer checklist: characters XML can't hold, such as
+                       NUL from a registry value, no longer stop the .ckl being
+                       written. Registry strings drop trailing NULs.
 #>
 
 [CmdletBinding()]
@@ -142,7 +145,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.4.0'
+$ComplianceScanVersion = '0.4.1'
 $SnapshotSchemaVersion = 3
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
@@ -1508,9 +1511,18 @@ function Read-RegistryValue {
         $v = $k.GetValue($Name)
     } finally { $k.Close() }
     if ($null -eq $v) { return [ordered]@{ Present = $false; Value = $null; Denied = $false } }
-    if ($v -is [string[]]) { $v = $v -join "`n" }
+    if ($v -is [string[]] -or $v -is [string]) { $v = ConvertTo-RegistryText $v }
     if ($v -is [byte[]]) { $v = [BitConverter]::ToString($v) }
     return [ordered]@{ Present = $true; Value = $v; Denied = $false }
+}
+
+function ConvertTo-RegistryText {
+    # A string value as text. Policy tools can leave NUL characters in a REG_SZ,
+    # trailing or as separators, and NUL isn't allowed in XML reports: trailing
+    # ones go, embedded ones become line breaks, as REG_MULTI_SZ entries do.
+    param([string[]]$Value)
+    $lines = @($Value | ForEach-Object { "$_".TrimEnd([char]0) -replace '\x00+', "`n" })
+    return ($lines -join "`n")
 }
 
 function Read-SecurityTemplate {
@@ -2114,6 +2126,27 @@ function Assert-StigBenchmark {
     }
 }
 
+function ConvertTo-XmlText {
+    # Drops characters XML 1.0 can't hold (control characters, NUL, unpaired
+    # surrogates), which XmlWriter refuses with an exception. Text from the
+    # machine, such as registry evidence, can carry them.
+    param([AllowNull()][string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    if ($Text -notmatch '[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD]') { return $Text }
+    $sb = [Text.StringBuilder]::new($Text.Length)
+    for ($i = 0; $i -lt $Text.Length; $i++) {
+        $c = $Text[$i]
+        if ([char]::IsHighSurrogate($c) -and $i + 1 -lt $Text.Length -and [char]::IsLowSurrogate($Text[$i + 1])) {
+            $null = $sb.Append($c).Append($Text[$i + 1])
+            $i++
+        } elseif ([Xml.XmlConvert]::IsXmlChar($c)) {
+            $null = $sb.Append($c)
+        }
+    }
+    Write-Verbose "Dropped $($Text.Length - $sb.Length) character(s) XML can't hold."
+    return $sb.ToString()
+}
+
 # Result states as STIG Viewer records them.
 $ChecklistStatus = @{ Pass = 'NotAFinding'; Fail = 'Open'; NotApplicable = 'Not_Applicable' }
 
@@ -2150,7 +2183,7 @@ function ConvertTo-StigChecklist {
     foreach ($pair in @(@('ROLE', $role), @('ASSET_TYPE', 'Computing'), @('MARKING', 'CUI'), @('HOST_NAME', "$($meta.ComputerName)"),
             @('HOST_IP', ''), @('HOST_MAC', ''), @('HOST_FQDN', ''), @('TARGET_COMMENT', "Scan $(Get-ScanId $Snapshot)"), @('TECH_AREA', ''),
             @('TARGET_KEY', "$(@($Benchmark.Rules)[0].TargetKey)"), @('WEB_OR_DATABASE', 'false'), @('WEB_DB_SITE', ''), @('WEB_DB_INSTANCE', ''))) {
-        $w.WriteElementString($pair[0], $pair[1])
+        $w.WriteElementString($pair[0], (ConvertTo-XmlText $pair[1]))
     }
     $w.WriteEndElement()
     $w.WriteStartElement('STIGS')
@@ -2161,7 +2194,7 @@ function ConvertTo-StigChecklist {
             @('title', $Benchmark.Title), @('uuid', $stigUuid), @('notice', "$($Benchmark.Notice)"), @('source', 'STIG.DOD.MIL'))) {
         $w.WriteStartElement('SI_DATA')
         $w.WriteElementString('SID_NAME', $pair[0])
-        if ("$($pair[1])" -ne '') { $w.WriteElementString('SID_DATA', "$($pair[1])") }
+        if ("$($pair[1])" -ne '') { $w.WriteElementString('SID_DATA', (ConvertTo-XmlText "$($pair[1])")) }
         $w.WriteEndElement()
     }
     $w.WriteEndElement()
@@ -2182,7 +2215,7 @@ function ConvertTo-StigChecklist {
         foreach ($pair in $data) {
             $w.WriteStartElement('STIG_DATA')
             $w.WriteElementString('VULN_ATTRIBUTE', $pair[0])
-            $w.WriteElementString('ATTRIBUTE_DATA', "$($pair[1])")
+            $w.WriteElementString('ATTRIBUTE_DATA', (ConvertTo-XmlText "$($pair[1])"))
             $w.WriteEndElement()
         }
         $status = 'Not_Reviewed'
@@ -2202,8 +2235,8 @@ function ConvertTo-StigChecklist {
             $comments = "Not in the $($Catalog.Id) catalog; review it in STIG Viewer."
         }
         $w.WriteElementString('STATUS', $status)
-        $w.WriteElementString('FINDING_DETAILS', $details)
-        $w.WriteElementString('COMMENTS', $comments)
+        $w.WriteElementString('FINDING_DETAILS', (ConvertTo-XmlText $details))
+        $w.WriteElementString('COMMENTS', (ConvertTo-XmlText $comments))
         $w.WriteElementString('SEVERITY_OVERRIDE', '')
         $w.WriteElementString('SEVERITY_JUSTIFICATION', '')
         $w.WriteEndElement()
