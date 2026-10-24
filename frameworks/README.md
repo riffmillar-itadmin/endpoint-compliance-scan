@@ -16,6 +16,7 @@ the script itself doesn't change unless a requirement needs a new named check.
 | `disa-stig-ws2019-ms.psd1`, `disa-stig-ws2019-dc.psd1` | DISA Windows Server 2019 STIG V3R8, member server and domain controller, from PowerStig (DISA has sunset this STIG) | All 247 and 277 rules |
 | `disa-stig-ws2022-ms.psd1`, `disa-stig-ws2022-dc.psd1` | DISA Windows Server 2022 STIG V2R11 (`U_MS_Windows_Server_2022_V2R11_STIG.zip`), member server and domain controller, with automated checks from PowerStig processed STIG 2.8 | All 242 and 271 rules |
 | `disa-stig-ws2025-ms.psd1`, `disa-stig-ws2025-dc.psd1` | DISA Windows Server 2025 STIG V1R4 (`U_MS_Windows_Server_2025_V1R4_STIG.zip`), member server and domain controller, with automated checks from PowerStig processed STIG 1.1 | All 258 and 288 rules; the 12 rules new since V1R1 are Manual |
+| `disa-stig-firewall.psd1` | DISA Windows Defender Firewall with Advanced Security STIG V2R2 (`U_MS_Windows_Defender_Firewall_V2R2_STIG.zip`), with automated checks from PowerStig processed STIG 2.2; applies to any Windows | All 21 rules; the inbound-exceptions rule is Manual |
 | `cis-controls-v8.1.psd1` | CIS Critical Security Controls v8.1 | Partial: the 18 IG1/IG2 safeguards an endpoint can show evidence for |
 | `pci-dss-4.0.1.psd1` | PCI DSS v4.0.1 | Partial: the 22 requirements an endpoint can show evidence for |
 | `hipaa-security-rule.psd1` | 45 CFR Part 164, Subpart C | Partial: all of 164.312, plus the endpoint-relevant specifications of 164.308 and 164.310 |
@@ -83,7 +84,7 @@ Each expectation is one setting with a required value.
 
 | Source | Fields | Reads |
 | --- | --- | --- |
-| `Registry` | `Path` (`HKLM:\...` or `HKCU:\...`), `Name`, an operator | The registry value. Unset fails, unless `AbsentOk = $true`. `HKCU` is the scanning user's hive. |
+| `Registry` | `Path` (`HKLM:\...` or `HKCU:\...`), `Name`, an operator; optionally `FallbackPath` | The registry value. Unset fails, unless `AbsentOk = $true`. With `FallbackPath`, a value unset under `Path` (the Group Policy key) is read under `FallbackPath` (the local setting) instead. `HKCU` is the scanning user's hive. |
 | `SecPol` | `Name` (a `[System Access]` key from `secedit /export`, or a `[Kerberos Policy]` key, which Windows exports only on a domain controller), an operator | The local security policy. Undefined fails. |
 | `Audit` | `Subcategory` (English name), `Setting` (`Success`, `Failure` or `SuccessAndFailure`) | Advanced audit policy, matched by GUID, so any display language works |
 | `UserRight` | `Name` (a right such as `SeNetworkLogonRight`), `Op` (`only` or `includes`), `Identities` | Who holds the right, from `secedit /export`. Needs elevation. Below. |

@@ -16,6 +16,7 @@ evidence for each requirement.
 | DISA Windows Server 2022 STIG V2R11, domain controller | `DISA-STIG-WS2022-DC` | CAT I, CAT II, CAT III | 271 | 193 |
 | DISA Windows Server 2025 STIG V1R4, member server | `DISA-STIG-WS2025-MS` | CAT I, CAT II, CAT III | 258 | 181 |
 | DISA Windows Server 2025 STIG V1R4, domain controller | `DISA-STIG-WS2025-DC` | CAT I, CAT II, CAT III | 288 | 190 |
+| DISA Windows Defender Firewall STIG V2R2, any Windows | `DISA-STIG-Firewall` | CAT I, CAT II, CAT III | 21 | 20 |
 | [CIS Controls v8.1](https://www.cisecurity.org/controls/v8-1), endpoint safeguards | `CIS-v8.1` | IG1, IG2 | 18 (partial) | 18 |
 | [NIST Cybersecurity Framework 2.0](https://www.nist.gov/cyberframework) | `NIST-CSF-2.0` | CSF | 106 | 11 |
 | [PCI DSS v4.0.1](https://www.pcisecuritystandards.org/document_library/), endpoint requirements | `PCI-DSS-4.0.1` | PCI | 22 (partial) | 22 |
@@ -45,11 +46,12 @@ separate one for domain controllers. Pick the one that matches the machine:
 | Windows 11 | `DISA-STIG-Win11` |
 | Windows Server 2019, 2022 or 2025, member or standalone server | `DISA-STIG-WS2019-MS`, `DISA-STIG-WS2022-MS`, `DISA-STIG-WS2025-MS` |
 | Windows Server 2019, 2022 or 2025, domain controller | `DISA-STIG-WS2019-DC`, `DISA-STIG-WS2022-DC`, `DISA-STIG-WS2025-DC` |
+| Any of these, for its firewall (in addition to the release's STIG) | `DISA-STIG-Firewall` |
 
 `winver` or `(Get-CimInstance Win32_OperatingSystem).Caption` shows the release.
-Each STIG catalog names the edition and build it was written for. Scan with
-another and the scan still runs, but it warns, and the report carries the
-warning in `PlatformWarning`.
+Each operating system STIG catalog names the edition and build it was written
+for. Scan with another and the scan still runs, but it warns, and the report
+carries the warning in `PlatformWarning`.
 
 A STIG rule is in one of three categories. CAT I rules are the most severe: a
 finding there can lead directly to a compromise. CAT II and CAT III are medium
@@ -280,6 +282,7 @@ record it as an override or as reviewed in `tools/mappings/disa-stig.psd1`.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.8.0 | 2026-10-24 | DISA Windows Defender Firewall STIG V2R2 as `DISA-STIG-Firewall`, for any Windows: 21 rules, 20 automated. Registry expectations take an optional `FallbackPath`: the Group Policy value is read first and the local firewall setting only when no policy value exists, as the STIG's checks say. The Domain profile and policy-merge rules are NotApplicable on a system that isn't joined to a domain. The catalog generator joins a STIG's policy and local parts into one rule (`PolicyFallback`), and reads organization-defined values whose PowerStig comment has extra spacing, which it used to miss. |
 | 0.7.0 | 2026-10-24 | The Windows Server 2022 and 2025 STIG catalogs follow DISA's current releases, V2R11 and V1R4, and each rule DISA changed was reviewed. Maximum password age is 180 days, the Security log example size is DISA's 5120000 KB, and the 2025 domain controller checks LDAP server signing (`LDAPServerEnforceIntegrity`). Hardened UNC paths, Credential Guard and virtualization-based security are NotApplicable on a system that isn't joined to a domain, through a new `DomainOnly` expectation key. The 12 rules new in 2025 V1R4 (11 for OpenSSH, one for the servicing level) are Manual, and retired rules are dropped. The role split follows DISA's STIG IDs. Registry values DISA allows to be absent now pass when absent on Server 2019 and 2022, which fixes false failures. Server 2019 stays on V3R8, because DISA has sunset that STIG. |
 | 0.6.0 | 2026-10-24 | Catalog generator `tools/Update-FrameworkCatalog.ps1`, in PowerShell, with the check mappings as data in `tools/mappings/`. Sources are pinned by SHA-256 and fetched with failover across mirrors and the PowerShell Gallery, or read offline with `-SourcePath`. STIG catalogs can follow a DISA release newer than PowerStig's. The Windows 11 STIG catalog now follows DISA's V2R11: 276 rules, 2 new rules Manual, 8 retired rules dropped, and the maximum password age raised from 60 to 180 days. |
 | 0.5.0 | 2026-10-24 | STIG Viewer 3 checklist (`.cklb`), written beside the `.ckl` when `-StigPath` names the STIG, because STIG Viewer 3 doesn't open `.ckl` files. It follows the layout STIG Viewer 3.8.1 saves. |

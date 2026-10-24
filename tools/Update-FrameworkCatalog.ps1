@@ -520,7 +520,7 @@ function Read-PowerStig {
     $doc = Read-Xml (Get-PinnedFile PowerStig "$Name.xml")
     $orgText = [IO.File]::ReadAllText((Get-PinnedFile PowerStig "$Name.org.default.xml"))
     $org = @{}
-    foreach ($m in [regex]::Matches($orgText, '<!-- Ensure (.*?)-->\s*<OrganizationalSetting id="([^"]+)"([^>]*)/>', 'Singleline')) {
+    foreach ($m in [regex]::Matches($orgText, '<!--\s*Ensure (.*?)-->\s*<OrganizationalSetting id="([^"]+)"([^>]*)/>', 'Singleline')) {
         $org[$m.Groups[2].Value] = $m.Groups[1].Value
     }
     $rules = [Collections.Generic.List[object]]::new()
@@ -705,6 +705,37 @@ function Set-StigOverride {
     , $list
 }
 
+function Join-PolicyFallback {
+    # A rule PowerStig splits into a Group Policy value (V-1.a, under \Policies\)
+    # and the local setting (V-1.b), where the check reads the local setting only
+    # when no policy value exists, becomes one requirement (V-1) whose expectation
+    # reads Path, then FallbackPath.
+    param($Requirements)
+    $ids = @($Requirements | ForEach-Object { $_.Id })
+    $list = [Collections.Generic.List[object]]::new()
+    foreach ($r in $Requirements) {
+        # The .b part is folded into its .a part below.
+        if ($r.Id -like '*.b' -and $ids -contains ($r.Id -replace '\.b$', '.a')) { continue }
+        if ($r.Id -notlike '*.a') { $list.Add($r); continue }
+        $baseId = $r.Id -replace '\.a$', ''
+        $b = @($Requirements | Where-Object { $_.Id -eq "$baseId.b" })
+        $one = { param($Req) $Req.Contains('Expect') -and @($Req.Expect).Count -eq 1 -and $Req.Expect[0].Source -eq 'Registry' }
+        if ($b.Count -ne 1 -or $ids -contains "$baseId.c" -or -not (& $one $r) -or -not (& $one $b[0]) -or
+            $r.Expect[0].Name -cne $b[0].Expect[0].Name -or $r.Expect[0].Path -notmatch '\\Policies\\') {
+            throw "PolicyFallback: $baseId isn't a Group Policy value (.a) with one local setting (.b) of the same name."
+        }
+        $e = [ordered]@{}
+        foreach ($k in $r.Expect[0].Keys) {
+            $e[$k] = $r.Expect[0][$k]
+            if ($k -eq 'Path') { $e.FallbackPath = $b[0].Expect[0].Path }
+        }
+        $r.Id = $baseId
+        $r.Expect = , $e
+        $list.Add($r)
+    }
+    , $list
+}
+
 function Get-DisaBenchmarkId {
     # The benchmark ID of the DISA STIG a catalog follows. PowerStig splits the
     # server STIGs by role, with IDs of its own, so those catalogs name DISA's.
@@ -722,6 +753,7 @@ function Get-StigCatalog {
     if ($missingNamed.Count -gt 0) { throw "tools/mappings names checks for rules $($Entry.PowerStig) doesn't have: $($missingNamed -join ', ')." }
     $reqs = [Collections.Generic.List[object]]::new()
     foreach ($rule in $stig.Rules) { $reqs.Add((ConvertTo-StigRequirement $rule $stig $named $Map)) }
+    if ($Entry.Contains('PolicyFallback') -and $Entry.PolicyFallback) { $reqs = Join-PolicyFallback $reqs }
 
     if (-not ($stig.ReleaseInfo -match 'Release: (\d+) Benchmark Date: (\d+ \w+ \d+)')) { throw "$($Entry.PowerStig): unexpected release info '$($stig.ReleaseInfo)'." }
     $release = $Matches[1]
@@ -759,7 +791,11 @@ function Get-StigCatalog {
             $r.Level = $Severity[$b.Severity]
             # Automation carries over by Vuln ID. Where DISA has since reworded the
             # check, list the rule so a person can confirm the expected value.
-            if (($r.Contains('Expect') -or $r.Checks.Count -gt 0) -and -not (& $flat $b.CheckContent).Contains((& $flat $raw[$r.Id]))) {
+            # A requirement joined from parts (Join-PolicyFallback) compares each part.
+            $parts = @(if ($raw.ContainsKey($r.Id)) { $raw[$r.Id] } else { $raw.Keys | Where-Object { $_ -like "$($r.Id).?" } | ForEach-Object { $raw[$_] } })
+            if ($parts.Count -eq 0) { throw "$($Entry.PowerStig): no PowerStig rule text for $($r.Id)." }
+            $check = & $flat $b.CheckContent
+            if (($r.Contains('Expect') -or $r.Checks.Count -gt 0) -and @($parts | Where-Object { -not $check.Contains((& $flat $_)) }).Count) {
                 $reworded.Add($r.Id)
             }
             $kept.Add($r)
@@ -790,8 +826,9 @@ function Get-StigCatalog {
     $header = (Format-HeaderComment $head) + "`n# Field meanings are in frameworks/README.md."
     $meta = [ordered]@{
         Id = $Entry.Id; Name = "DISA $($Entry.Product) STIG V$($version)R$release"; Source = 'https://public.cyber.mil/stigs/'; StigId = $stig.StigId
-        Levels = @('CAT I', 'CAT II', 'CAT III'); Complete = $true; AppliesTo = $Entry.AppliesTo; Thresholds = $Map.Thresholds
+        Levels = @('CAT I', 'CAT II', 'CAT III'); Complete = $true; AppliesTo = $(if ($Entry.Contains('AppliesTo')) { $Entry.AppliesTo }); Thresholds = $Map.Thresholds
     }
+    if (-not $Entry.Contains('AppliesTo')) { $meta.Remove('AppliesTo') }
     [pscustomobject]@{ Id = $Entry.Id; File = $Entry.File; Text = (ConvertTo-CatalogText $header $meta $reqs); Requirements = $reqs.Count; Note = "$auto automated; $note"; Reworded = @($reworded) }
 }
 

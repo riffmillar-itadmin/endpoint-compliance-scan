@@ -392,8 +392,49 @@ Describe 'STIG catalog from PowerStig' {
         { Invoke-Generator -Framework 'DISA-STIG-Sample' -Mappings $maps } | Should -Throw '*V-999999*'
     }
 
+    It 'leaves AppliesTo out when the mappings give none' {
+        $maps = Copy-FixtureMapping 'disa-stig.psd1' @{ '            AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }' = '' }
+        $run = Invoke-Generator -Framework 'DISA-STIG-Sample' -Mappings $maps
+        (Read-Catalog $run.Folder 'disa-stig-sample').Contains('AppliesTo') | Should -BeFalse
+    }
+
+    It 'stops when PolicyFallback meets a split rule that is not a policy value and its local setting' {
+        $maps = Copy-FixtureMapping 'disa-stig.psd1' @{ "            AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }" = "            AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }`n            PolicyFallback = `$true" }
+        { Invoke-Generator -Framework 'DISA-STIG-Sample' -Mappings $maps } | Should -Throw '*PolicyFallback: V-900002 *'
+    }
+
     It 'refuses a framework it does not build' {
         { Invoke-Generator -Framework 'CMMC' } | Should -Throw "*doesn't build CMMC*"
+    }
+}
+
+Describe 'Joining a policy value with its local setting' {
+    BeforeAll {
+        $script:Policy = 'HKLM:\SOFTWARE\Policies\Westmark\Firewall'
+        $script:Local = 'HKLM:\SYSTEM\CurrentControlSet\Services\Westmark\Firewall'
+        function Get-RulePart {
+            param([string]$Id, [string]$Path, [string]$Name = 'Enabled')
+            New-Requirement $Id 'Config' 'CAT II' "$Name = 1" @() @([ordered]@{ Source = 'Registry'; Path = $Path; Name = $Name; Op = 'eq'; Value = 1 })
+        }
+    }
+
+    It 'makes one requirement that reads the policy value, then the local setting' {
+        $out = Join-PolicyFallback @((Get-RulePart 'V-1.a' $Policy), (Get-RulePart 'V-1.b' $Local), (Get-RulePart 'V-2' $Policy 'Other'))
+        @($out | ForEach-Object { $_.Id }) | Should -Be @('V-1', 'V-2')
+        $e = $out[0].Expect[0]
+        @($e.Keys) | Should -Be @('Source', 'Path', 'FallbackPath', 'Name', 'Op', 'Value')
+        $e.Path | Should -Be $Policy
+        $e.FallbackPath | Should -Be $Local
+        $out[1].Expect[0].Contains('FallbackPath') | Should -BeFalse
+    }
+
+    It 'refuses parts that <Case>' -ForEach @(
+        @{ Case = 'name different values'; Parts = { @((Get-RulePart 'V-1.a' $Policy), (Get-RulePart 'V-1.b' $Local 'Other')) } }
+        @{ Case = 'have no policy value first'; Parts = { @((Get-RulePart 'V-1.a' $Local), (Get-RulePart 'V-1.b' $Policy)) } }
+        @{ Case = 'have no local setting'; Parts = { @(, (Get-RulePart 'V-1.a' $Policy)) } }
+        @{ Case = 'come in three'; Parts = { @((Get-RulePart 'V-1.a' $Policy), (Get-RulePart 'V-1.b' $Local), (Get-RulePart 'V-1.c' $Local)) } }
+    ) {
+        { Join-PolicyFallback (& $Parts) } | Should -Throw '*PolicyFallback: V-1 *'
     }
 }
 

@@ -1,6 +1,7 @@
-<!-- Organization-defined values for Sample-1.2.xml, in PowerStig's layout. -->
+<!-- Organization-defined values for Sample-1.2.xml, in PowerStig's layout. Some
+     PowerStig files put two spaces before Ensure, as V-900003 does here. -->
 <OrganizationalSettings fullversion="1.2">
-  <!-- Ensure ''V-900003'' -le '900000' -and ''V-900003'' -ne '0'-->
+  <!--  Ensure ''V-900003'' -le '900000' -and ''V-900003'' -ne '0'-->
   <OrganizationalSetting id="V-900003" ValueData="900000" />
   <!-- Ensure ''V-900007'' -le '3' -and ''V-900007'' -ne '0'-->
   <OrganizationalSetting id="V-900007" PolicyValue="3" />

@@ -53,6 +53,8 @@
             @{ Name = 'WindowsServer-2025-MS-1.1.org.default.xml'; Path = 'WindowsServer-2025-MS-1.1.org.default.xml'; Sha256 = '6329d52bffd480b8064e5028262fb34e58eba6a4aaf9b636340568fb41434f36' }
             @{ Name = 'WindowsServer-2025-DC-1.1.xml'; Path = 'WindowsServer-2025-DC-1.1.xml'; Sha256 = 'eac0832dea19f469e3866b6662fd323860b06a93a45da8aca093df74ceb38d19' }
             @{ Name = 'WindowsServer-2025-DC-1.1.org.default.xml'; Path = 'WindowsServer-2025-DC-1.1.org.default.xml'; Sha256 = '65f51765979605950fd519f6081b418180ded42b10594373adf55728b44f853f' }
+            @{ Name = 'WindowsFirewall-All-2.2.xml'; Path = 'WindowsFirewall-All-2.2.xml'; Sha256 = 'cb831d86d52bd778d7cd491d7b031897ea96c823b738b5d0b312c5f7e5657f57' }
+            @{ Name = 'WindowsFirewall-All-2.2.org.default.xml'; Path = 'WindowsFirewall-All-2.2.org.default.xml'; Sha256 = 'bdbe3edfbb241d334257faffde9a3627929b3db92856211a0073418cd3d403c4' }
         )
     }
 
@@ -76,6 +78,12 @@
             Name = 'U_MS_Windows_Server_2025_V1R4_STIG.zip'
             Sha256 = '0b83a3d42789577e5850d1bc60474af2e4c28b28b155f21f7b6a486ee0c1d84e'
             Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_Server_2025_V1R4_STIG.zip')
+        }
+        @{
+            Benchmark = 'Windows_Firewall_with_Advanced_Security'
+            Name = 'U_MS_Windows_Defender_Firewall_V2R2_STIG.zip'
+            Sha256 = '4fd9e65948717c06e00605b11e12958eedde409ac50040958e7c13e7146d25b3'
+            Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_Defender_Firewall_V2R2_STIG.zip')
         }
     )
 }

@@ -206,7 +206,8 @@ Describe 'Every framework catalog: <Id>' -ForEach $script:FrameworkCases {
     }
 
     It 'names the Windows it was written for in a shape the scanner reads, if it names one' {
-        if ($Fw.Id -like 'DISA-STIG-*') { $Fw.Contains('AppliesTo') | Should -BeTrue }
+        # The operating system STIGs name their Windows; the Firewall STIG applies to any.
+        if ($Fw.Id -like 'DISA-STIG-*' -and $Fw.Id -ne 'DISA-STIG-Firewall') { $Fw.Contains('AppliesTo') | Should -BeTrue }
         if ($Fw.Contains('AppliesTo')) {
             $keys = @($Fw.AppliesTo.Keys)
             $keys.Count | Should -BeGreaterThan 0
@@ -246,6 +247,7 @@ Describe 'Framework catalogs' {
         @{ Id = 'DISA-STIG-WS2022-DC'; Count = 271 }
         @{ Id = 'DISA-STIG-WS2025-MS'; Count = 258 }
         @{ Id = 'DISA-STIG-WS2025-DC'; Count = 288 }
+        @{ Id = 'DISA-STIG-Firewall'; Count = 21 }
     ) {
         @((Get-Framework $Id).Requirements).Count | Should -Be $Count
         (Get-Framework $Id).Complete | Should -BeTrue
@@ -278,7 +280,10 @@ Describe 'Framework catalogs' {
         foreach ($c in $Catalogs) {
             foreach ($e in @($c.Requirements | Where-Object { $_.Contains('Expect') } | ForEach-Object { $_.Expect })) {
                 switch ($e.Source) {
-                    'Registry' { $t.Registry.Contains("$($e.Path)\$($e.Name)") | Should -BeTrue }
+                    'Registry' {
+                        $t.Registry.Contains("$($e.Path)\$($e.Name)") | Should -BeTrue
+                        if ($e.Contains('FallbackPath')) { $t.Registry.Contains("$($e.FallbackPath)\$($e.Name)") | Should -BeTrue }
+                    }
                     'Service' { $t.Services | Should -Contain $e.Name }
                     'Feature' { $t.Features | Should -Contain $e.Name }
                 }
@@ -447,6 +452,37 @@ Describe 'Expectations' {
     It 'passes an unset registry value only when AbsentOk says so' {
         $e = @{ Source = 'Registry'; Path = $Sys; Name = 'EnableLUA'; Op = 'in'; Values = @(1); AbsentOk = $true }
         (Test-ExpectOn $e { param($s) Write-RegFact $s "$Sys\EnableLUA" $null }).State | Should -Be 'Pass'
+    }
+
+    It 'reads the local setting only when no policy value is set: <Case>' -ForEach @(
+        @{ Case = 'policy value passes'; Policy = 1; Local = 0; Want = 'Pass'; Evidence = '^EnableFirewall = 1$' }
+        @{ Case = 'policy value fails, whatever the local setting'; Policy = 0; Local = 1; Want = 'Fail'; Evidence = '^EnableFirewall = 0;' }
+        @{ Case = 'local setting passes'; Policy = $null; Local = 1; Want = 'Pass'; Evidence = '^EnableFirewall \(local setting, no policy value\) = 1$' }
+        @{ Case = 'local setting fails'; Policy = $null; Local = 0; Want = 'Fail'; Evidence = 'local setting' }
+        @{ Case = 'neither set fails'; Policy = $null; Local = $null; Want = 'Fail'; Evidence = 'not set by policy or locally' }
+    ) {
+        $gp = 'HKLM:\SOFTWARE\Policies\Microsoft\WindowsFirewall\DomainProfile'
+        $fw = 'HKLM:\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\DomainProfile'
+        $e = @{ Source = 'Registry'; Path = $gp; FallbackPath = $fw; Name = 'EnableFirewall'; Op = 'eq'; Value = 1 }
+        $r = Test-ExpectOn $e {
+            param($s)
+            Write-Fact $s.Registry "$gp\EnableFirewall" ([pscustomobject]@{ Present = $null -ne $Policy; Value = $Policy; Denied = $false })
+            Write-Fact $s.Registry "$fw\EnableFirewall" ([pscustomobject]@{ Present = $null -ne $Local; Value = $Local; Denied = $false })
+        }
+        $r.State | Should -Be $Want
+        $r.Evidence | Should -Match $Evidence
+    }
+
+    It 'skips a fallback whose local setting was not readable' {
+        $gp = 'HKLM:\SOFTWARE\Policies\Westmark'
+        $fw = 'HKLM:\SYSTEM\Westmark'
+        $e = @{ Source = 'Registry'; Path = $gp; FallbackPath = $fw; Name = 'X'; Op = 'eq'; Value = 1 }
+        $r = Test-ExpectOn $e {
+            param($s)
+            Write-Fact $s.Registry "$gp\X" ([pscustomobject]@{ Present = $false; Value = $null; Denied = $false })
+            Write-Fact $s.Registry "$fw\X" ([pscustomobject]@{ Present = $false; Value = $null; Denied = $true })
+        }
+        $r.State | Should -Be 'Skipped'
     }
 
     It 'judges a DomainOnly expectation on <Case>' -ForEach @(
