@@ -40,9 +40,14 @@
     Catalogs for copyrighted standards (CIS, PCI DSS) and the HIPAA catalog hold
     only the requirements an endpoint can show evidence for; the report says so.
 
-    Writes two files per run into -OutputPath:
-        compliance-scan-<framework>-<computer>-<timestamp>.csv   one row per requirement
-        compliance-scan-<framework>-<computer>-<timestamp>.json  requirements, checks and thresholds
+    Writes these files per run into -OutputPath, named by scan ID (computer and
+    collection time, UTC) so a shared folder of many machines' reports sorts by
+    computer, then time:
+        compliance-scan-<scan id>-<framework>.csv           one row per requirement
+        compliance-scan-<scan id>-<framework>.json          requirements, checks and thresholds
+        compliance-scan-<scan id>-<framework>.records.json  flat records for Power BI
+        compliance-scan-<scan id>-<framework>.html          a self-contained report
+        compliance-scan-<scan id>-<framework>.ckl           STIG Viewer checklist (STIGs, with -StigPath)
 
     Exit codes: 0 no Fail and no Error; 1 at least one Fail; 2 at least one Error,
     or the scan could not start. Error wins over Fail because a run with errors
@@ -73,6 +78,11 @@
     Evaluate a saved snapshot instead of scanning this machine. Works on any
     operating system.
 
+.PARAMETER StigPath
+    The DISA STIG zip from cyber.mil, or the XCCDF file inside it, for the
+    framework being scanned. With it, a STIG scan also writes a STIG Viewer
+    checklist (.ckl) holding every rule's text and the scan's results.
+
 .PARAMETER IncludeSnapshot
     Embed the snapshot in the JSON report.
 
@@ -86,6 +96,10 @@
 .EXAMPLE
     .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-Win11 -Level 'CAT I' -SnapshotPath .\pc01.snapshot.json
     STIG CAT I rules only, and keep the raw snapshot.
+
+.EXAMPLE
+    .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_STIG.zip -OutputPath \\fileserver\scans
+    Server 2022 member server STIG, with a STIG Viewer checklist, into a shared folder.
 
 .EXAMPLE
     pwsh -File ./Invoke-EndpointComplianceScan.ps1 -Framework NIST-800-53r5 -Level Low -FromSnapshot ./pc01.snapshot.json
@@ -107,6 +121,9 @@
                        features, platform warning when a catalog is for another
                        Windows, local accounts NotApplicable on a domain
                        controller. Snapshot schema 3.
+    0.4.0  2026-10-24  Reports: a self-contained HTML report, flat JSON records
+                       for Power BI, and a STIG Viewer checklist (.ckl) with
+                       -StigPath. Reports are named by scan ID.
 #>
 
 [CmdletBinding()]
@@ -117,6 +134,7 @@ param(
     [string]$ProfilePath,
     [string]$SnapshotPath,
     [string]$FromSnapshot,
+    [string]$StigPath,
     [switch]$IncludeSnapshot,
     [switch]$PassThru
 )
@@ -124,7 +142,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.3.0'
+$ComplianceScanVersion = '0.4.0'
 $SnapshotSchemaVersion = 3
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
@@ -1791,20 +1809,441 @@ function Write-ScanSummary {
     }
 }
 
-function Export-ScanReport {
-    param($Evaluation, $Snapshot, $Thresholds, $Catalog, [string]$Folder, [switch]$IncludeSnapshot)
-    if (-not (Test-Path -LiteralPath $Folder)) { $null = New-Item -ItemType Directory -Path $Folder }
+function Get-ScanId {
+    # Names one collection: the computer and the UTC time its snapshot was taken.
+    # Every framework evaluated from the same snapshot shares it, so reports from
+    # many machines in one folder join and sort on it.
+    param($Snapshot)
     $meta = Get-Prop $Snapshot 'Meta'
     $computer = "$($meta.ComputerName)" -replace '[^A-Za-z0-9-]', '_'
+    $collected = ConvertTo-DateValue (Get-Prop $meta 'CollectedUtc')
+    if ($null -eq $collected) { throw 'Snapshot has no Meta.CollectedUtc.' }
+    return '{0}-{1}' -f $computer, $collected.ToString('yyyyMMddTHHmmssZ', [Globalization.CultureInfo]::InvariantCulture)
+}
+
+function ConvertTo-ScanRecord {
+    # One flat record per requirement, with the scan's details repeated on each,
+    # for Power BI's Folder connector or any tool that wants a single table.
+    param($Evaluation, $Snapshot, $Catalog)
+    $meta = Get-Prop $Snapshot 'Meta'
+    $scanId = Get-ScanId $Snapshot
+    $collected = ConvertTo-IsoDate (ConvertTo-DateValue $meta.CollectedUtc)
+    @(foreach ($r in @($Evaluation.Requirements)) {
+        [ordered]@{
+            ScanId           = $scanId
+            ComputerName     = "$($meta.ComputerName)"
+            CollectedUtc     = $collected
+            OSCaption        = "$(Get-Prop $meta 'OSCaption')"
+            OSVersion        = "$(Get-Prop $meta 'OSVersion')"
+            ProductType      = Get-Prop $meta 'ProductType'
+            PartOfDomain     = Get-Prop $meta 'PartOfDomain'
+            IsElevated       = Get-Prop $meta 'IsElevated'
+            ToolVersion      = $ComplianceScanVersion
+            Framework        = $Catalog.Id
+            FrameworkName    = $Catalog.Name
+            FrameworkLevel   = $Evaluation.Level
+            CatalogComplete  = [bool]$Catalog.Complete
+            PlatformWarning  = "$($Evaluation.PlatformWarning)"
+            Requirement      = $r.Requirement
+            Reference        = $r.Reference
+            RequirementLevel = $r.Level
+            Family           = $r.Family
+            Title            = $r.Title
+            State            = $r.State
+            Checks           = $r.Checks
+            Findings         = $r.Findings
+            Evidence         = $r.Evidence
+            Note             = $r.Note
+        }
+    })
+}
+
+function ConvertTo-HtmlText {
+    param($Value)
+    return [Net.WebUtility]::HtmlEncode("$Value")
+}
+
+$HtmlStyle = @'
+:root { --bg: #ffffff; --fg: #1d2330; --muted: #5b6475; --line: #d9dde5; --panel: #f4f6f9;
+  --pass: #1e7b45; --fail: #b3261e; --error: #8e24aa; --skipped: #9a6700; --manual: #3d5a99; --na: #6b7280; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171d; --fg: #e6e9ef; --muted: #9aa3b2; --line: #2c323d; --panel: #1c2028;
+    --pass: #4cc38a; --fail: #ff7b72; --error: #d2a8ff; --skipped: #e3b341; --manual: #8cb4ff; --na: #9ca3af; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--fg);
+  font: 14px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+main { max-width: 1200px; margin: 0 auto; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 28px 0 8px; }
+.meta { color: var(--muted); margin: 0 0 12px; }
+.banner { border-left: 4px solid var(--skipped); background: var(--panel); padding: 8px 12px; margin: 8px 0; }
+.counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.count { border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; min-width: 104px; background: var(--panel); }
+.count b { display: block; font-size: 20px; }
+table { border-collapse: collapse; width: 100%; }
+table.fam { width: auto; min-width: 50%; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.state { font-weight: 600; white-space: nowrap; }
+.Pass { color: var(--pass); } .Fail { color: var(--fail); } .Error { color: var(--error); }
+.Skipped { color: var(--skipped); } .Manual { color: var(--manual); } .NotApplicable { color: var(--na); }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 12px; }
+.filters label { white-space: nowrap; }
+.filters input[type=search], .filters select { font: inherit; padding: 4px 6px; color: var(--fg);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+details summary { cursor: pointer; }
+details div { margin: 6px 0 2px; white-space: pre-wrap; word-break: break-word; color: var(--muted); }
+.wrap { overflow-x: auto; }
+@media print { .filters { display: none; } tr { break-inside: avoid; } body { padding: 0; } }
+'@
+
+$HtmlScript = @'
+(function () {
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#reqs tbody tr'));
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.filters input[type=checkbox]'));
+  var family = document.getElementById('family');
+  var text = document.getElementById('text');
+  var shown = document.getElementById('shown');
+  function apply() {
+    var states = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+    var q = text.value.toLowerCase();
+    var n = 0;
+    rows.forEach(function (r) {
+      var ok = states.indexOf(r.getAttribute('data-state')) >= 0 &&
+        (!family.value || r.getAttribute('data-family') === family.value) &&
+        (!q || r.textContent.toLowerCase().indexOf(q) >= 0);
+      r.style.display = ok ? '' : 'none';
+      if (ok) { n++; }
+    });
+    shown.textContent = n + ' of ' + rows.length + ' shown';
+  }
+  boxes.forEach(function (b) { b.addEventListener('change', apply); });
+  family.addEventListener('change', apply);
+  text.addEventListener('input', apply);
+  window.addEventListener('beforeprint', function () {
+    Array.prototype.forEach.call(document.querySelectorAll('details'), function (d) { d.open = true; });
+  });
+  apply();
+})();
+'@
+
+function ConvertTo-HtmlReport {
+    # A single self-contained page: no external files or scripts, so it opens
+    # offline, survives being emailed and prints to PDF from the browser.
+    param($Evaluation, $Snapshot, $Catalog, [string[]]$Notice = @())
+    $meta = Get-Prop $Snapshot 'Meta'
+    $reqs = @($Evaluation.Requirements)
+    $order = 'Fail', 'Error', 'Skipped', 'Manual', 'Pass', 'NotApplicable'
+    $label = @{ Fail = 'Fail'; Error = 'Error'; Skipped = 'Skipped'; Manual = 'Manual'; Pass = 'Pass'; NotApplicable = 'Not applicable' }
+    $when = (ConvertTo-DateValue $meta.CollectedUtc).ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+    $sb = [Text.StringBuilder]::new()
+    $title = "$($Catalog.Name) - $($meta.ComputerName)"
+    $null = $sb.Append('<!doctype html><html lang="en"><head><meta charset="utf-8">')
+    $null = $sb.Append('<meta name="viewport" content="width=device-width, initial-scale=1">')
+    $null = $sb.Append("<title>$(ConvertTo-HtmlText $title)</title><style>$HtmlStyle</style></head><body><main>")
+    $null = $sb.Append("<h1>$(ConvertTo-HtmlText $Catalog.Name)</h1>")
+    $null = $sb.Append("<p class=""meta"">$(ConvertTo-HtmlText $meta.ComputerName) &middot; level $(ConvertTo-HtmlText $Evaluation.Level) &middot; collected $when UTC &middot; $(ConvertTo-HtmlText (Get-Prop $meta 'OSCaption')) $(ConvertTo-HtmlText (Get-Prop $meta 'OSVersion')) &middot; endpoint-compliance-scan $ComplianceScanVersion &middot; scan $(ConvertTo-HtmlText (Get-ScanId $Snapshot))</p>")
+    $banners = @()
+    if ($Evaluation.PlatformWarning) { $banners += $Evaluation.PlatformWarning }
+    if (-not $Catalog.Complete) { $banners += 'This catalog lists only the requirements an endpoint can show evidence for; the rest of the framework is assessed elsewhere.' }
+    if (-not $meta.IsElevated) { $banners += 'Not elevated: checks that need elevation are Skipped.' }
+    $banners += @($Notice | Where-Object { $_ })
+    foreach ($b in $banners) { $null = $sb.Append("<p class=""banner"">$(ConvertTo-HtmlText $b)</p>") }
+    $null = $sb.Append('<p class="meta">Evidence for an assessment, not a verdict: the report never states that a machine is compliant.</p>')
+
+    $null = $sb.Append('<div class="counts">')
+    foreach ($s in $order) {
+        $n = @($reqs | Where-Object { $_.State -eq $s }).Count
+        $null = $sb.Append("<div class=""count""><b class=""$s"">$n</b>$($label[$s])</div>")
+    }
+    $null = $sb.Append("<div class=""count""><b>$($reqs.Count)</b>Requirements</div></div>")
+
+    $null = $sb.Append('<h2>By family</h2><div class="wrap"><table class="fam"><thead><tr><th>Family</th>')
+    foreach ($s in $order) { $null = $sb.Append("<th class=""n"">$($label[$s])</th>") }
+    $null = $sb.Append('</tr></thead><tbody>')
+    $families = @($reqs | Group-Object Family | Sort-Object Name)
+    foreach ($grp in $families) {
+        $null = $sb.Append("<tr><td>$(ConvertTo-HtmlText $grp.Name)</td>")
+        foreach ($s in $order) { $null = $sb.Append("<td class=""n"">$(@($grp.Group | Where-Object { $_.State -eq $s }).Count)</td>") }
+        $null = $sb.Append('</tr>')
+    }
+    $null = $sb.Append('</tbody></table></div>')
+
+    $null = $sb.Append('<h2>Requirements</h2><div class="filters">')
+    foreach ($s in $order) {
+        $checked = if ($s -in 'Fail', 'Error', 'Skipped') { ' checked' } else { '' }
+        $null = $sb.Append("<label><input type=""checkbox"" value=""$s""$checked> $($label[$s])</label>")
+    }
+    $null = $sb.Append('<select id="family" aria-label="Family"><option value="">All families</option>')
+    foreach ($grp in $families) { $null = $sb.Append("<option>$(ConvertTo-HtmlText $grp.Name)</option>") }
+    $null = $sb.Append('</select><input id="text" type="search" placeholder="Search" aria-label="Search"><span id="shown" class="meta"></span></div>')
+    $null = $sb.Append('<div class="wrap"><table id="reqs"><thead><tr><th>Reference</th><th>Level</th><th>Family</th><th>State</th><th>Requirement</th></tr></thead><tbody>')
+    foreach ($r in ($reqs | Sort-Object { $StateRank[$_.State] })) {
+        $null = $sb.Append("<tr data-state=""$($r.State)"" data-family=""$(ConvertTo-HtmlText $r.Family)"">")
+        $null = $sb.Append("<td>$(ConvertTo-HtmlText $r.Reference)</td><td>$(ConvertTo-HtmlText $r.Level)</td><td>$(ConvertTo-HtmlText $r.Family)</td>")
+        $null = $sb.Append("<td class=""state $($r.State)"">$($label[$r.State])</td><td>")
+        $parts = @()
+        if ($r.Findings) { $parts += "Findings: $($r.Findings)" }
+        if ($r.Evidence -and $r.Evidence -ne $r.Findings) { $parts += "Evidence: $($r.Evidence)" }
+        if ($r.Note) { $parts += "Note: $($r.Note)" }
+        if ($parts.Count -gt 0) {
+            $null = $sb.Append("<details><summary>$(ConvertTo-HtmlText $r.Title)</summary><div>$(ConvertTo-HtmlText ($parts -join "`n`n"))</div></details>")
+        } else {
+            $null = $sb.Append((ConvertTo-HtmlText $r.Title))
+        }
+        $null = $sb.Append('</td></tr>')
+    }
+    $null = $sb.Append("</tbody></table></div></main><script>$HtmlScript</script></body></html>")
+    return $sb.ToString()
+}
+
+function Read-StigBenchmark {
+    # The rules of a DISA STIG from its XCCDF file, or from the STIG zip that
+    # cyber.mil publishes (the zip's xccdf.xml is read in place). Read as data:
+    # no DTDs, no external entities.
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "STIG file '$Path' does not exist." }
+    $settings = [Xml.XmlReaderSettings]::new()
+    $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
+    $settings.XmlResolver = $null
+    $docs = @()
+    if ([IO.Path]::GetExtension($Path) -eq '.zip') {
+        Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+        $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Path).ProviderPath)
+        try {
+            foreach ($entry in @($zip.Entries | Where-Object { $_.Name -like '*xccdf*.xml' })) {
+                $stream = $entry.Open()
+                try {
+                    $reader = [Xml.XmlReader]::Create($stream, $settings)
+                    $doc = [Xml.XmlDocument]::new()
+                    $doc.Load($reader)
+                    $docs += [pscustomobject]@{ Name = $entry.FullName; Doc = $doc }
+                } finally { $stream.Dispose() }
+            }
+        } finally { $zip.Dispose() }
+        if ($docs.Count -eq 0) { throw "$Path holds no XCCDF file (*xccdf*.xml)." }
+        if ($docs.Count -gt 1) { throw "$Path holds $($docs.Count) XCCDF files; extract the one for this STIG and pass it to -StigPath." }
+    } else {
+        $reader = [Xml.XmlReader]::Create((Resolve-Path -LiteralPath $Path).ProviderPath, $settings)
+        try {
+            $doc = [Xml.XmlDocument]::new()
+            $doc.Load($reader)
+        } finally { $reader.Dispose() }
+        $docs += [pscustomobject]@{ Name = (Split-Path $Path -Leaf); Doc = $doc }
+    }
+    $doc = $docs[0].Doc
+    $bench = $doc.DocumentElement
+    if ($bench.LocalName -ne 'Benchmark') { throw "$($docs[0].Name) is not an XCCDF benchmark." }
+    function Get-Child { param($Node, [string]$Name) @($Node.ChildNodes | Where-Object { $_.LocalName -eq $Name }) }
+    function Get-ChildText { param($Node, [string]$Name) $c = @(Get-Child $Node $Name); if ($c.Count -gt 0) { "$($c[0].InnerText)" } else { '' } }
+    $release = @(Get-Child $bench 'plain-text' | Where-Object { $_.GetAttribute('id') -eq 'release-info' })
+    $rules = [Collections.Generic.List[object]]::new()
+    foreach ($group in @(Get-Child $bench 'Group')) {
+        foreach ($rule in @(Get-Child $group 'Rule')) {
+            # The description holds escaped tags: <VulnDiscussion>...</VulnDiscussion><FalsePositives>...
+            $parts = @{}
+            foreach ($m in [regex]::Matches((Get-ChildText $rule 'description'), '<(\w+)>(.*?)</\1>', 'Singleline')) {
+                $parts[$m.Groups[1].Value] = $m.Groups[2].Value
+            }
+            $check = @(Get-Child $rule 'check')
+            $checkText = ''
+            $checkRef = ''
+            if ($check.Count -gt 0) {
+                $checkText = Get-ChildText $check[0] 'check-content'
+                $ref = @(Get-Child $check[0] 'check-content-ref')
+                if ($ref.Count -gt 0) { $checkRef = $ref[0].GetAttribute('name') }
+            }
+            $idents = @(Get-Child $rule 'ident')
+            $reference = @(Get-Child $rule 'reference')
+            $targetKey = ''
+            if ($reference.Count -gt 0) { $targetKey = Get-ChildText $reference[0] 'identifier' }
+            $rules.Add([pscustomobject]@{
+                GroupId        = $group.GetAttribute('id')
+                GroupTitle     = Get-ChildText $group 'title'
+                RuleId         = $rule.GetAttribute('id')
+                Severity       = $rule.GetAttribute('severity')
+                Weight         = $rule.GetAttribute('weight')
+                RuleVersion    = Get-ChildText $rule 'version'
+                RuleTitle      = Get-ChildText $rule 'title'
+                Discussion     = "$($parts['VulnDiscussion'])"
+                FalsePositives = "$($parts['FalsePositives'])"
+                FalseNegatives = "$($parts['FalseNegatives'])"
+                Documentable   = "$($parts['Documentable'])"
+                Mitigations    = "$($parts['Mitigations'])"
+                PotentialImpact = "$($parts['PotentialImpacts'])"
+                ThirdPartyTools = "$($parts['ThirdPartyTools'])"
+                MitigationControl = "$($parts['MitigationControl'])"
+                Responsibility = "$($parts['Responsibility'])"
+                SecurityOverrideGuidance = "$($parts['SeverityOverrideGuidance'])"
+                IAControls     = "$($parts['IAControls'])"
+                CheckContent   = $checkText
+                CheckContentRef = $checkRef
+                FixText        = Get-ChildText $rule 'fixtext'
+                TargetKey      = $targetKey
+                Cci            = @($idents | Where-Object { $_.GetAttribute('system') -like '*cci*' } | ForEach-Object { "$($_.InnerText)" })
+                Legacy         = @($idents | Where-Object { $_.GetAttribute('system') -like '*legacy*' } | ForEach-Object { "$($_.InnerText)" })
+            })
+        }
+    }
+    if ($rules.Count -eq 0) { throw "$($docs[0].Name) holds no rules." }
+    [pscustomobject]@{
+        Id          = $bench.GetAttribute('id')
+        Title       = Get-ChildText $bench 'title'
+        Description = Get-ChildText $bench 'description'
+        Version     = Get-ChildText $bench 'version'
+        ReleaseInfo = $(if ($release.Count -gt 0) { "$($release[0].InnerText)" } else { '' })
+        Notice      = $(@(Get-Child $bench 'notice') | ForEach-Object { $_.GetAttribute('id') } | Select-Object -First 1)
+        FileName    = $docs[0].Name
+        Rules       = @($rules)
+    }
+}
+
+function Assert-StigBenchmark {
+    # Refuses a STIG file that isn't the one the catalog was built from: at least
+    # 80% of the catalog's Vuln IDs must be in it. The STIG IDs PowerStig uses
+    # differ from DISA's, so the IDs are compared, not the benchmark names.
+    param($Catalog, $Benchmark)
+    if (-not $Catalog.Contains('StigId')) { throw "$($Catalog.Id) is not a STIG; -StigPath applies only to the DISA STIG frameworks." }
+    $catalogVulns = @($Catalog.Requirements | ForEach-Object { "$($_.Id)" -replace '\.[a-z]$', '' } | Select-Object -Unique)
+    $benchVulns = @($Benchmark.Rules | ForEach-Object { $_.GroupId })
+    $shared = @($catalogVulns | Where-Object { $benchVulns -contains $_ })
+    if ($shared.Count -lt [math]::Ceiling($catalogVulns.Count * 0.8)) {
+        throw "$($Benchmark.FileName) shares $($shared.Count) of $($catalogVulns.Count) Vuln IDs with $($Catalog.Id); it looks like another STIG or release."
+    }
+}
+
+# Result states as STIG Viewer records them.
+$ChecklistStatus = @{ Pass = 'NotAFinding'; Fail = 'Open'; NotApplicable = 'Not_Applicable' }
+
+function ConvertTo-StigChecklist {
+    # A STIG Viewer checklist (.ckl, which STIG Viewer 2 and 3 open) with every
+    # rule of the benchmark, results filled in where the scan has one. A catalog
+    # rule split in parts (V-1.a, V-1.b) takes the worst state of its parts.
+    # Rules the scan didn't evaluate stay Not_Reviewed. Returns the XML text and
+    # how many rules matched.
+    param($Evaluation, $Snapshot, $Catalog, $Benchmark)
+    $meta = Get-Prop $Snapshot 'Meta'
+    $byVuln = @{}
+    foreach ($r in @($Evaluation.Requirements)) {
+        $vuln = "$($r.Requirement)" -replace '\.[a-z]$', ''
+        if (-not $byVuln.ContainsKey($vuln)) { $byVuln[$vuln] = [Collections.Generic.List[object]]::new() }
+        $byVuln[$vuln].Add($r)
+    }
+    Assert-StigBenchmark $Catalog $Benchmark
+    $catalogVulns = @($Catalog.Requirements | ForEach-Object { "$($_.Id)" -replace '\.[a-z]$', '' } | Select-Object -Unique)
+    $benchVulns = @($Benchmark.Rules | ForEach-Object { $_.GroupId })
+    $role = switch ([int](Get-Prop $meta 'ProductType')) { 1 { 'Workstation' } 2 { 'Domain Controller' } 3 { 'Member Server' } default { 'None' } }
+    $stigRef = "$($Benchmark.Title) :: Version $($Benchmark.Version), $($Benchmark.ReleaseInfo)"
+    $stigUuid = [guid]::NewGuid().ToString()
+
+    $settings = [Xml.XmlWriterSettings]::new()
+    $settings.Indent = $true
+    $settings.Encoding = [Text.UTF8Encoding]::new($false)
+    $buffer = [IO.MemoryStream]::new()
+    $w = [Xml.XmlWriter]::Create($buffer, $settings)
+    $w.WriteStartDocument()
+    $w.WriteComment("endpoint-compliance-scan $ComplianceScanVersion")
+    $w.WriteStartElement('CHECKLIST')
+    $w.WriteStartElement('ASSET')
+    foreach ($pair in @(@('ROLE', $role), @('ASSET_TYPE', 'Computing'), @('MARKING', 'CUI'), @('HOST_NAME', "$($meta.ComputerName)"),
+            @('HOST_IP', ''), @('HOST_MAC', ''), @('HOST_FQDN', ''), @('TARGET_COMMENT', "Scan $(Get-ScanId $Snapshot)"), @('TECH_AREA', ''),
+            @('TARGET_KEY', "$(@($Benchmark.Rules)[0].TargetKey)"), @('WEB_OR_DATABASE', 'false'), @('WEB_DB_SITE', ''), @('WEB_DB_INSTANCE', ''))) {
+        $w.WriteElementString($pair[0], $pair[1])
+    }
+    $w.WriteEndElement()
+    $w.WriteStartElement('STIGS')
+    $w.WriteStartElement('iSTIG')
+    $w.WriteStartElement('STIG_INFO')
+    foreach ($pair in @(@('version', $Benchmark.Version), @('classification', 'UNCLASSIFIED'), @('customname', ''), @('stigid', $Benchmark.Id),
+            @('description', $Benchmark.Description), @('filename', $Benchmark.FileName), @('releaseinfo', $Benchmark.ReleaseInfo),
+            @('title', $Benchmark.Title), @('uuid', $stigUuid), @('notice', "$($Benchmark.Notice)"), @('source', 'STIG.DOD.MIL'))) {
+        $w.WriteStartElement('SI_DATA')
+        $w.WriteElementString('SID_NAME', $pair[0])
+        if ("$($pair[1])" -ne '') { $w.WriteElementString('SID_DATA', "$($pair[1])") }
+        $w.WriteEndElement()
+    }
+    $w.WriteEndElement()
+    $matched = 0
+    foreach ($rule in @($Benchmark.Rules)) {
+        $w.WriteStartElement('VULN')
+        $data = @(
+            @('Vuln_Num', $rule.GroupId), @('Severity', $rule.Severity), @('Group_Title', $rule.GroupTitle), @('Rule_ID', $rule.RuleId),
+            @('Rule_Ver', $rule.RuleVersion), @('Rule_Title', $rule.RuleTitle), @('Vuln_Discuss', $rule.Discussion), @('IA_Controls', $rule.IAControls),
+            @('Check_Content', $rule.CheckContent), @('Fix_Text', $rule.FixText), @('False_Positives', $rule.FalsePositives),
+            @('False_Negatives', $rule.FalseNegatives), @('Documentable', $rule.Documentable), @('Mitigations', $rule.Mitigations),
+            @('Potential_Impact', $rule.PotentialImpact), @('Third_Party_Tools', $rule.ThirdPartyTools), @('Mitigation_Control', $rule.MitigationControl),
+            @('Responsibility', $rule.Responsibility), @('Security_Override_Guidance', $rule.SecurityOverrideGuidance),
+            @('Check_Content_Ref', $rule.CheckContentRef), @('Weight', $rule.Weight), @('Class', 'Unclass'), @('STIGRef', $stigRef),
+            @('TargetKey', $rule.TargetKey), @('STIG_UUID', $stigUuid))
+        $data += @($rule.Legacy | ForEach-Object { , @('LEGACY_ID', $_) })
+        $data += @($rule.Cci | ForEach-Object { , @('CCI_REF', $_) })
+        foreach ($pair in $data) {
+            $w.WriteStartElement('STIG_DATA')
+            $w.WriteElementString('VULN_ATTRIBUTE', $pair[0])
+            $w.WriteElementString('ATTRIBUTE_DATA', "$($pair[1])")
+            $w.WriteEndElement()
+        }
+        $status = 'Not_Reviewed'
+        $details = ''
+        $comments = ''
+        if ($byVuln.ContainsKey($rule.GroupId)) {
+            $matched++
+            $parts = @($byVuln[$rule.GroupId])
+            $state = ($parts | Sort-Object { $StateRank[$_.State] } | Select-Object -First 1).State
+            if ($ChecklistStatus.ContainsKey($state)) { $status = $ChecklistStatus[$state] }
+            $details = (@($parts | ForEach-Object { "$($_.Requirement) $($_.State): $($_.Evidence)".Trim() }) -join "`n")
+            $notes = @($parts | Where-Object { $_.Note } | ForEach-Object { $_.Note } | Select-Object -Unique)
+            $comments = "endpoint-compliance-scan $ComplianceScanVersion, $($Catalog.Id), scan $(Get-ScanId $Snapshot): $state." + $(if ($notes.Count -gt 0) { ' ' + ($notes -join ' ') } else { '' })
+        } elseif ($catalogVulns -contains $rule.GroupId) {
+            $comments = "Not evaluated: outside level $($Evaluation.Level)."
+        } else {
+            $comments = "Not in the $($Catalog.Id) catalog; review it in STIG Viewer."
+        }
+        $w.WriteElementString('STATUS', $status)
+        $w.WriteElementString('FINDING_DETAILS', $details)
+        $w.WriteElementString('COMMENTS', $comments)
+        $w.WriteElementString('SEVERITY_OVERRIDE', '')
+        $w.WriteElementString('SEVERITY_JUSTIFICATION', '')
+        $w.WriteEndElement()
+    }
+    $w.WriteEndElement()
+    $w.WriteEndElement()
+    $w.WriteEndElement()
+    $w.WriteEndDocument()
+    $w.Flush()
+    $w.Dispose()
+    $text = [Text.Encoding]::UTF8.GetString($buffer.ToArray())
+    $buffer.Dispose()
+    [pscustomobject]@{
+        Xml       = $text
+        Rules     = @($Benchmark.Rules).Count
+        Matched   = $matched
+        Unmatched = @($catalogVulns | Where-Object { $benchVulns -notcontains $_ })
+    }
+}
+
+function Export-ScanReport {
+    # Writes the reports, named compliance-scan-<scan id>-<framework>, so a folder
+    # of many machines' reports sorts by computer, then time. Re-evaluating a
+    # snapshot against the same framework replaces its reports.
+    param($Evaluation, $Snapshot, $Thresholds, $Catalog, [string]$Folder, [switch]$IncludeSnapshot, $Benchmark, [string[]]$Notice = @())
+    if (-not (Test-Path -LiteralPath $Folder)) { $null = New-Item -ItemType Directory -Path $Folder }
+    $meta = Get-Prop $Snapshot 'Meta'
+    $scanId = Get-ScanId $Snapshot
     $framework = "$($Catalog.Id)".ToLowerInvariant() -replace '[^a-z0-9.-]', '_'
-    $stamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-    $base = Join-Path $Folder "compliance-scan-$framework-$computer-$stamp"
+    $base = Join-Path $Folder "compliance-scan-$scanId-$framework"
+    $files = @()
+    $utf8 = [Text.UTF8Encoding]::new($false)
 
     $Evaluation.Requirements | Export-Csv -LiteralPath "$base.csv" -NoTypeInformation -Encoding UTF8
+    $files += "$base.csv"
 
     $report = [ordered]@{
         Tool            = 'endpoint-compliance-scan'
         Version         = $ComplianceScanVersion
+        ScanId          = $scanId
         Framework       = $Catalog.Id
         FrameworkName   = $Catalog.Name
         Source          = $Catalog.Source
@@ -1824,7 +2263,26 @@ function Export-ScanReport {
     }
     if ($IncludeSnapshot) { $report.Snapshot = $Snapshot }
     $report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath "$base.json" -Encoding UTF8
-    return @("$base.csv", "$base.json")
+    $files += "$base.json"
+
+    # ConvertTo-Json unwraps a one-item array in 5.1, so the list goes in explicitly.
+    $records = @(ConvertTo-ScanRecord $Evaluation $Snapshot $Catalog)
+    [IO.File]::WriteAllText("$base.records.json", (ConvertTo-Json -InputObject $records -Depth 4), $utf8)
+    $files += "$base.records.json"
+
+    $notes = @($Notice | Where-Object { $_ })
+    if ($Benchmark) {
+        $ckl = ConvertTo-StigChecklist $Evaluation $Snapshot $Catalog $Benchmark
+        [IO.File]::WriteAllText("$base.ckl", $ckl.Xml, $utf8)
+        $files += "$base.ckl"
+        $notes += "STIG Viewer checklist: $($ckl.Matched) of $($ckl.Rules) rules from $($Benchmark.FileName) have results; the rest are Not_Reviewed."
+        if ($ckl.Unmatched.Count -gt 0) {
+            $notes += "$($ckl.Unmatched.Count) catalog rule(s) are not in $($Benchmark.FileName): $($ckl.Unmatched -join ', ')."
+        }
+    }
+    [IO.File]::WriteAllText("$base.html", (ConvertTo-HtmlReport $Evaluation $Snapshot $Catalog $notes), $utf8)
+    $files += "$base.html"
+    return $files
 }
 
 #endregion
@@ -1843,6 +2301,16 @@ try {
         $local = Join-Path $root 'ComplianceScan.local.psd1'
         if (Test-Path -LiteralPath $local) { $override = $local }
     }
+    # Read the STIG file first, so a wrong one stops the run before the scan.
+    $benchmark = $null
+    $notice = @()
+    if ($StigPath) {
+        $benchmark = Read-StigBenchmark $StigPath
+        Assert-StigBenchmark $catalog $benchmark
+    } elseif ($catalog.Contains('StigId')) {
+        $notice += 'No STIG Viewer checklist: pass the DISA STIG zip from cyber.mil with -StigPath to write one.'
+    }
+
     $thresholds = Get-ScanThreshold -ExamplePath (Join-Path $root 'ComplianceScan.example.psd1') -Catalog $catalog -OverridePath $override
     if ($override) { Write-Verbose "Thresholds: example, then $($catalog.Id), then $override." }
 
@@ -1863,9 +2331,10 @@ try {
 
     $folder = $OutputPath
     if (-not $folder) { $folder = Join-Path $root 'Reports' }
-    $files = Export-ScanReport -Evaluation $evaluation -Snapshot $snapshot -Thresholds $thresholds -Catalog $catalog -Folder $folder -IncludeSnapshot:$IncludeSnapshot
+    $files = Export-ScanReport -Evaluation $evaluation -Snapshot $snapshot -Thresholds $thresholds -Catalog $catalog -Folder $folder -IncludeSnapshot:$IncludeSnapshot -Benchmark $benchmark -Notice $notice
 
     Write-ScanSummary -Evaluation $evaluation -Snapshot $snapshot -Catalog $catalog
+    foreach ($n in $notice) { Write-Host $n -ForegroundColor Yellow }
     Write-Host ("Reports: " + ($files -join ', '))
     if ($PassThru) { $evaluation.Requirements }
     $code = Get-ScanExitCode $evaluation.Requirements

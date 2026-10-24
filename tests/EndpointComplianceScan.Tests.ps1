@@ -986,9 +986,223 @@ Describe 'Thresholds' {
     }
 }
 
+Describe 'Reports' {
+    BeforeAll {
+        $script:Eval = Invoke-Evaluation (Get-Fixture)
+    }
+
+    It 'names a scan by computer and collection time, UTC' {
+        Get-ScanId (Get-Fixture) | Should -Be 'WESTMARK-PC01-20261020T150000Z'
+    }
+
+    It 'writes one flat record per requirement, each carrying the scan' {
+        $records = @(ConvertTo-ScanRecord $Eval (Get-Fixture) $Catalog)
+        $records.Count | Should -Be 110
+        foreach ($k in 'ScanId', 'ComputerName', 'CollectedUtc', 'Framework', 'FrameworkLevel', 'Requirement', 'Reference', 'Family', 'State', 'Findings') {
+            $records[0].Contains($k) | Should -BeTrue -Because $k
+        }
+        @($records | ForEach-Object { $_.ScanId } | Select-Object -Unique) | Should -Be 'WESTMARK-PC01-20261020T150000Z'
+        $records[0].CollectedUtc | Should -Be '2026-10-20T15:00:00.0000000Z'
+        ($records | Where-Object Requirement -eq '3.1.8').Reference | Should -Be 'AC.L2-3.1.8'
+    }
+
+    It 'writes the records as a JSON array even for a one-requirement framework' {
+        $fw = @{ Id = 'T'; Name = 'T'; Source = 'https://example.invalid'; Levels = @('One'); Complete = $true; Thresholds = @{}
+            Requirements = @(@{ Id = '1'; Family = 'X'; Level = 'One'; Title = 't'; Checks = @('AC-UacEnabled') }) }
+        $e = Invoke-Evaluation (Get-Fixture) -Level 'One' -For $fw
+        $files = Export-ScanReport -Evaluation $e -Snapshot (Get-Fixture) -Thresholds (Get-Threshold) -Catalog $fw -Folder (Join-Path $TestDrive 'one')
+        $path = @($files | Where-Object { $_ -like '*.records.json' })[0]
+        (Get-Content -LiteralPath $path -Raw).TrimStart() | Should -Match '^\['
+        @(Get-Content -LiteralPath $path -Raw | ConvertFrom-Json).Count | Should -Be 1
+    }
+
+    It 'replaces its reports when the same snapshot is evaluated again' {
+        $folder = Join-Path $TestDrive 'again'
+        $first = Export-ScanReport -Evaluation $Eval -Snapshot (Get-Fixture) -Thresholds (Get-Threshold) -Catalog $Catalog -Folder $folder
+        $second = Export-ScanReport -Evaluation $Eval -Snapshot (Get-Fixture) -Thresholds (Get-Threshold) -Catalog $Catalog -Folder $folder
+        $second | Should -Be $first
+        @(Get-ChildItem -LiteralPath $folder).Count | Should -Be 4
+    }
+
+    It 'writes a self-contained HTML report with every requirement' {
+        $html = ConvertTo-HtmlReport $Eval (Get-Fixture) $Catalog
+        $html | Should -Match '^<!doctype html>'
+        $html | Should -Not -Match '<script src|<link |https?://(?!example)'
+        ([regex]::Matches($html, '<tr data-state=')).Count | Should -Be 110
+        $html | Should -Match 'WESTMARK-PC01-20261020T150000Z'
+    }
+
+    It 'escapes catalog and evidence text in the HTML report' {
+        $fw = @{ Id = 'T'; Name = 'T <b>bold</b>'; Source = 'https://example.invalid'; Levels = @('One'); Complete = $false; Thresholds = @{}
+            Requirements = @(@{ Id = '1'; Family = 'X&Y'; Level = 'One'; Title = '<script>alert(1)</script>'; Checks = @(); Note = 'a < b' }) }
+        $html = ConvertTo-HtmlReport (Invoke-Evaluation (Get-Fixture) -Level 'One' -For $fw) (Get-Fixture) $fw @('notice <i>')
+        $html | Should -Not -Match '<script>alert|<b>bold|<i>'
+        $html | Should -Match '&lt;script&gt;alert\(1\)&lt;/script&gt;'
+        $html | Should -Match 'X&amp;Y'
+        $html | Should -Match 'lists only the requirements'
+        $html | Should -Match 'notice &lt;i&gt;'
+    }
+
+    It 'shows the platform warning in the HTML report' {
+        $fw = Get-Framework 'DISA-STIG-WS2022-MS'
+        ConvertTo-HtmlReport (Invoke-Evaluation (Get-Fixture) -Level 'CAT I' -For $fw) (Get-Fixture) $fw | Should -Match 'is written for Windows Server'
+    }
+}
+
+Describe 'STIG Viewer checklist' {
+    BeforeAll {
+        $script:XccdfPath = Join-Path $PSScriptRoot 'fixtures/stig-sample-xccdf.xml'
+        $script:StigFw = @{
+            Id = 'SAMPLE-STIG'; Name = 'Sample STIG'; Source = 'https://example.invalid'; StigId = 'Sample_Westmark_STIG'
+            Levels = @('CAT I', 'CAT II', 'CAT III'); Complete = $true; Thresholds = @{}
+            Requirements = @(
+                @{ Id = 'V-900001'; Family = 'X'; Level = 'CAT II'; Title = 'UAC'; Checks = @('AC-UacEnabled') }
+                @{ Id = 'V-900002.a'; Family = 'X'; Level = 'CAT I'; Title = 'UAC part'; Checks = @('AC-UacEnabled') }
+                @{ Id = 'V-900002.b'; Family = 'X'; Level = 'CAT I'; Title = 'BitLocker part'; Checks = @('SC-BitLocker') }
+                @{ Id = 'V-900003'; Family = 'X'; Level = 'CAT III'; Title = 'RDP idle'; Checks = @('AC-RdpIdleTimeout') }
+                @{ Id = 'V-900005'; Family = 'X'; Level = 'CAT II'; Title = 'Review'; Checks = @(); Note = 'Review the accounts.' }
+            )
+        }
+        function Get-Checklist {
+            param([string]$Level = 'CAT III')
+            $s = Get-Fixture
+            $s.BitLocker.ProtectionStatus = 'Off'
+            Write-RegFact $s "$TsPol\fDenyTSConnections" 1
+            $e = Invoke-Evaluation $s -Level $Level -For $StigFw
+            $c = ConvertTo-StigChecklist $e $s $StigFw (Read-StigBenchmark $XccdfPath)
+            [pscustomobject]@{ Result = $c; Xml = [xml]$c.Xml }
+        }
+        function Get-Vuln {
+            param($Xml, [string]$Id)
+            $Xml.CHECKLIST.STIGS.iSTIG.VULN | Where-Object { ($_.STIG_DATA | Where-Object VULN_ATTRIBUTE -eq 'Vuln_Num').ATTRIBUTE_DATA -eq $Id }
+        }
+        function Get-VulnData {
+            param($Vuln, [string]$Attribute)
+            @($Vuln.STIG_DATA | Where-Object VULN_ATTRIBUTE -eq $Attribute | ForEach-Object { $_.ATTRIBUTE_DATA })
+        }
+    }
+
+    It 'reads the rules of an XCCDF benchmark' {
+        $b = Read-StigBenchmark $XccdfPath
+        $b.Id | Should -Be 'Sample_Westmark_STIG'
+        $b.Version | Should -Be '1'
+        $b.ReleaseInfo | Should -Be 'Release: 3 Benchmark Date: 01 Apr 2026'
+        @($b.Rules).Count | Should -Be 5
+        $r = $b.Rules[0]
+        $r.GroupId | Should -Be 'V-900001'
+        $r.RuleId | Should -Be 'SV-900001r1_rule'
+        $r.RuleVersion | Should -Be 'WM-00-000001'
+        $r.Severity | Should -Be 'medium'
+        $r.Discussion | Should -Be 'UAC limits what software can do.'
+        $r.Documentable | Should -Be 'false'
+        $r.CheckContentRef | Should -Be 'M'
+        $r.TargetKey | Should -Be '9001'
+        $r.Cci | Should -Be @('CCI-000366')
+        $r.Legacy | Should -Be @('V-100001')
+        $b.Rules[1].Discussion | Should -Be 'Two parts & one rule.'
+    }
+
+    It 'reads the XCCDF file inside a STIG zip' {
+        Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+        $dir = Join-Path $TestDrive 'zipsrc/U_Sample_V1R3_Manual_STIG'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        Copy-Item -LiteralPath $XccdfPath -Destination (Join-Path $dir 'U_Sample_V1R3_Manual-xccdf.xml')
+        $zip = Join-Path $TestDrive 'U_Sample_V1R3_STIG.zip'
+        [IO.Compression.ZipFile]::CreateFromDirectory((Join-Path $TestDrive 'zipsrc'), $zip)
+        $b = Read-StigBenchmark $zip
+        @($b.Rules).Count | Should -Be 5
+        $b.FileName | Should -BeLike '*U_Sample_V1R3_Manual-xccdf.xml'
+    }
+
+    It 'refuses a zip holding more than one XCCDF file' {
+        Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+        $dir = Join-Path $TestDrive 'twosrc'
+        $null = New-Item -ItemType Directory -Path $dir -Force
+        Copy-Item -LiteralPath $XccdfPath -Destination (Join-Path $dir 'a-xccdf.xml')
+        Copy-Item -LiteralPath $XccdfPath -Destination (Join-Path $dir 'b-xccdf.xml')
+        $zip = Join-Path $TestDrive 'two.zip'
+        [IO.Compression.ZipFile]::CreateFromDirectory($dir, $zip)
+        { Read-StigBenchmark $zip } | Should -Throw '*2 XCCDF files*'
+    }
+
+    It 'refuses an XCCDF file with a DTD' {
+        $path = Join-Path $TestDrive 'dtd-xccdf.xml'
+        Set-Content -LiteralPath $path -Value '<?xml version="1.0"?><!DOCTYPE Benchmark [<!ENTITY x "y">]><Benchmark>&x;</Benchmark>'
+        { Read-StigBenchmark $path } | Should -Throw
+    }
+
+    It 'refuses a STIG file that is not the catalog''s STIG' {
+        { Assert-StigBenchmark (Get-Framework 'DISA-STIG-Win11') (Read-StigBenchmark $XccdfPath) } | Should -Throw '*shares 0 of*'
+        { Assert-StigBenchmark $Catalog (Read-StigBenchmark $XccdfPath) } | Should -Throw '*not a STIG*'
+    }
+
+    It 'records <Id> as <Status>' -ForEach @(
+        @{ Id = 'V-900001'; Status = 'NotAFinding' }
+        @{ Id = 'V-900002'; Status = 'Open' }
+        @{ Id = 'V-900003'; Status = 'Not_Applicable' }
+        @{ Id = 'V-900004'; Status = 'Not_Reviewed' }
+        @{ Id = 'V-900005'; Status = 'Not_Reviewed' }
+    ) {
+        (Get-Vuln (Get-Checklist).Xml $Id).STATUS | Should -Be $Status
+    }
+
+    It 'lists every rule of the STIG and counts the ones with results' {
+        $c = Get-Checklist
+        @($c.Xml.CHECKLIST.STIGS.iSTIG.VULN).Count | Should -Be 5
+        $c.Result.Matched | Should -Be 4
+        $c.Result.Unmatched | Should -BeNullOrEmpty
+    }
+
+    It 'rolls a split rule up to its worst part and keeps the evidence of each' {
+        $v = Get-Vuln (Get-Checklist).Xml 'V-900002'
+        $v.FINDING_DETAILS | Should -Match 'V-900002.a Pass'
+        $v.FINDING_DETAILS | Should -Match 'V-900002.b Fail'
+    }
+
+    It 'carries the STIG''s rule data and the scan in each entry' {
+        $x = (Get-Checklist).Xml
+        $v = Get-Vuln $x 'V-900002'
+        Get-VulnData $v 'Rule_ID' | Should -Be 'SV-900002r1_rule'
+        Get-VulnData $v 'Rule_Ver' | Should -Be 'WM-00-000002'
+        Get-VulnData $v 'Severity' | Should -Be 'high'
+        Get-VulnData $v 'CCI_REF' | Should -Be @('CCI-001199', 'CCI-002475')
+        Get-VulnData $v 'Fix_Text' | Should -Be 'Turn on BitLocker.'
+        $v.COMMENTS | Should -Match 'WESTMARK-PC01-20261020T150000Z'
+        $x.CHECKLIST.ASSET.HOST_NAME | Should -Be 'WESTMARK-PC01'
+        $x.CHECKLIST.ASSET.ROLE | Should -Be 'Workstation'
+        ($x.CHECKLIST.STIGS.iSTIG.STIG_INFO.SI_DATA | Where-Object SID_NAME -eq 'stigid').SID_DATA | Should -Be 'Sample_Westmark_STIG'
+        (Get-Vuln $x 'V-900005').COMMENTS | Should -Match 'Review the accounts'
+        (Get-Vuln $x 'V-900004').COMMENTS | Should -Match 'Not in the SAMPLE-STIG catalog'
+    }
+
+    It 'leaves rules above the chosen level Not_Reviewed and says why' {
+        $v = Get-Vuln (Get-Checklist -Level 'CAT I').Xml 'V-900001'
+        $v.STATUS | Should -Be 'Not_Reviewed'
+        $v.COMMENTS | Should -Match 'outside level CAT I'
+    }
+
+    It 'writes the checklist beside the other reports and names it in the HTML' {
+        $s = Get-Fixture
+        $e = Invoke-Evaluation $s -Level 'CAT III' -For $StigFw
+        $files = Export-ScanReport -Evaluation $e -Snapshot $s -Thresholds (Get-Threshold) -Catalog $StigFw -Folder (Join-Path $TestDrive 'ckl') -Benchmark (Read-StigBenchmark $XccdfPath)
+        $ckl = @($files | Where-Object { $_ -like '*.ckl' })
+        $ckl.Count | Should -Be 1
+        { [xml](Get-Content -LiteralPath $ckl[0] -Raw) } | Should -Not -Throw
+        Get-Content -LiteralPath @($files | Where-Object { $_ -like '*.html' })[0] -Raw | Should -Match '4 of 5 rules'
+    }
+}
+
 Describe 'Running the script on a saved snapshot' {
     BeforeAll {
         $script:Exe = (Get-Process -Id $PID).Path
+        function Get-Report {
+            # The one report of this extension in a folder, by its full path.
+            param([string]$Folder, [string]$Extension)
+            $hit = @(Get-ChildItem -LiteralPath $Folder -File | Where-Object { $_.Name -match "-[a-z0-9.-]+?\.$([regex]::Escape($Extension))$" -and
+                    ($Extension -ne 'json' -or $_.Name -notlike '*.records.json') })
+            if ($hit.Count -ne 1) { throw "Expected one .$Extension report in $Folder, found $($hit.Count)." }
+            return $hit[0].FullName
+        }
     }
 
     It 'exits 0 and writes one CSV row per requirement for the compliant fixture' {
@@ -997,9 +1211,11 @@ Describe 'Running the script on a saved snapshot' {
         $LASTEXITCODE | Should -Be 0
         $csv = @(Get-ChildItem -LiteralPath $out -Filter '*.csv')
         $csv.Count | Should -Be 1
-        $csv[0].Name | Should -BeLike 'compliance-scan-cmmc-WESTMARK-PC01-*.csv'
+        $csv[0].Name | Should -Be 'compliance-scan-WESTMARK-PC01-20261020T150000Z-cmmc.csv'
+        foreach ($ext in 'json', 'records.json', 'html') { Test-Path -LiteralPath (Join-Path $out "compliance-scan-WESTMARK-PC01-20261020T150000Z-cmmc.$ext") | Should -BeTrue -Because $ext }
+        @(Get-ChildItem -LiteralPath $out -Filter '*.ckl').Count | Should -Be 0
         @(Import-Csv -LiteralPath $csv[0].FullName).Count | Should -Be 110
-        $json = Get-Content -LiteralPath (Get-ChildItem -LiteralPath $out -Filter '*.json')[0].FullName -Raw | ConvertFrom-Json
+        $json = Get-Content -LiteralPath (Get-Report $out 'json') -Raw | ConvertFrom-Json
         $json.Summary.Fail | Should -Be 0
         $json.Framework | Should -Be 'CMMC'
         $json.Level | Should -Be 'L2'
@@ -1021,7 +1237,7 @@ Describe 'Running the script on a saved snapshot' {
         $out = Join-Path $TestDrive 'pci'
         $null = & $Exe -NoProfile -NonInteractive -File $ScriptPath -Framework PCI-DSS-4.0.1 -FromSnapshot $path -OutputPath $out
         $LASTEXITCODE | Should -Be 0
-        $json = Get-Content -LiteralPath (Get-ChildItem -LiteralPath $out -Filter '*.json')[0].FullName -Raw | ConvertFrom-Json
+        $json = Get-Content -LiteralPath (Get-Report $out 'json') -Raw | ConvertFrom-Json
         $json.Complete | Should -BeFalse
         @($json.Requirements).Count | Should -Be 22
     }
@@ -1034,9 +1250,22 @@ Describe 'Running the script on a saved snapshot' {
         $ErrorActionPreference = 'Continue'
         $output = & $Exe -NoProfile -NonInteractive -File $ScriptPath -Framework disa-stig-ws2019-ms -FromSnapshot $path -OutputPath $out 2>&1
         "$output" | Should -Match 'build 17763'
-        $json = Get-Content -LiteralPath (Get-ChildItem -LiteralPath $out -Filter '*.json')[0].FullName -Raw | ConvertFrom-Json
+        $json = Get-Content -LiteralPath (Get-Report $out 'json') -Raw | ConvertFrom-Json
         $json.PlatformWarning | Should -Match 'DISA-STIG-WS2019-MS is written for Windows Server'
         $LASTEXITCODE | Should -Be 0
+    }
+
+    It 'writes a checklist with -StigPath, and refuses a STIG file for another framework before scanning' {
+        $out = Join-Path $TestDrive 'stigpath'
+        $ErrorActionPreference = 'Continue'
+        $null = & $Exe -NoProfile -NonInteractive -File $ScriptPath -Framework DISA-STIG-Win11 -FromSnapshot $FixturePath -OutputPath $out -StigPath (Join-Path $PSScriptRoot 'fixtures/stig-sample-xccdf.xml') 2>&1
+        $LASTEXITCODE | Should -Be 2
+        Test-Path -LiteralPath $out | Should -BeFalse
+    }
+
+    It 'says how to get a checklist when a STIG runs without -StigPath' {
+        $output = & $Exe -NoProfile -NonInteractive -File $ScriptPath -Framework DISA-STIG-Win11 -Level 'CAT I' -FromSnapshot $FixturePath -OutputPath (Join-Path $TestDrive 'nostig') 2>&1
+        "$output" | Should -Match 'pass the DISA STIG zip'
     }
 
     It 'exits 2 and lists the frameworks when none is chosen' {
