@@ -131,6 +131,9 @@
                        written. Registry strings drop trailing NULs.
     0.5.0  2026-10-24  STIG Viewer 3 checklist (.cklb) beside the .ckl, which
                        STIG Viewer 3 doesn't open.
+    0.6.0  2026-10-24  Catalog generator tools/Update-FrameworkCatalog.ps1, with
+                       pinned sources and failover. The Windows 11 STIG catalog
+                       follows DISA's V2R11.
 #>
 
 [CmdletBinding()]
@@ -149,7 +152,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.5.0'
+$ComplianceScanVersion = '0.6.0'
 $SnapshotSchemaVersion = 3
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }

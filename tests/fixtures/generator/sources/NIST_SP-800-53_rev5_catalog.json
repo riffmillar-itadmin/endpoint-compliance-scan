@@ -1,0 +1,11 @@
+{"catalog": {"metadata": {"version": "5.2.0"}, "groups": [
+  {"id": "ac", "title": "Access Control", "controls": [
+    {"id": "ac-2", "title": "Account Management",
+     "props": [{"name": "label", "value": "AC-02", "class": "zero-padded"}, {"name": "label", "value": "AC-2"}],
+     "controls": [
+       {"id": "ac-2.1", "title": "Automated System Account Management", "props": [{"name": "label", "value": "AC-2(1)"}]}
+     ]},
+    {"id": "ac-3", "title": "Access Enforcement", "props": [{"name": "label", "value": "AC-3"}]},
+    {"id": "ac-4", "title": "Not in a baseline", "props": [{"name": "label", "value": "AC-4"}]}
+  ]}
+]}}

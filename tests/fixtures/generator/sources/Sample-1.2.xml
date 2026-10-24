@@ -1,0 +1,135 @@
+<!-- A made-up STIG in PowerStig's processed layout, for the generator tests. -->
+<DISASTIG version="1" classification="UNCLASSIFIED" stigid="Sample_Westmark_STIG" title="Sample Westmark Security Technical Implementation Guide" releaseinfo="Release: 2 Benchmark Date: 01 Jan 2026 3.5.2 1.10.0" fullversion="1.2">
+  <AccountPolicyRule dscresourcemodule="SecurityPolicyDsc">
+    <Rule id="V-900007" severity="medium" title="SRG-OS-000007">
+      <Description>&lt;VulnDiscussion&gt;Lockout stops guessing.&lt;/VulnDiscussion&gt;</Description>
+      <OrganizationValueRequired>True</OrganizationValueRequired>
+      <PolicyName>Account lockout threshold</PolicyName>
+      <PolicyValue />
+      <RawString>Check the lockout threshold.</RawString>
+    </Rule>
+  </AccountPolicyRule>
+  <AuditPolicyRule dscresourcemodule="AuditPolicyDsc">
+    <Rule id="V-900011" severity="medium" title="SRG-OS-000011">
+      <AuditFlag>Failure</AuditFlag>
+      <Description>&lt;VulnDiscussion&gt;Failed logons are audited.&lt;/VulnDiscussion&gt;</Description>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Check Credential Validation auditing.</RawString>
+      <Subcategory>Credential Validation</Subcategory>
+    </Rule>
+  </AuditPolicyRule>
+  <ManualRule dscresourcemodule="None">
+    <Rule id="V-900005" severity="medium" title="SRG-OS-000005">
+      <Description>&lt;VulnDiscussion&gt;A firewall provides a line of defense against attack. Turn it on.&lt;/VulnDiscussion&gt;</Description>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Review.</RawString>
+    </Rule>
+    <Rule id="V-900014" severity="low" title="SRG-OS-000014">
+      <Description>&lt;VulnDiscussion&gt;Procedures must be written down. Keep them current.&lt;/VulnDiscussion&gt;</Description>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Review the procedures.</RawString>
+    </Rule>
+  </ManualRule>
+  <RegistryRule dscresourcemodule="PSDscResources">
+    <Rule id="V-900001" severity="medium" title="SRG-OS-000001">
+      <Description>&lt;VulnDiscussion&gt;UAC limits what software can do.&lt;/VulnDiscussion&gt;</Description>
+      <Key>HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System</Key>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Check EnableLUA is 1.</RawString>
+      <ValueData>1</ValueData>
+      <ValueName>EnableLUA</ValueName>
+      <ValueType>Dword</ValueType>
+    </Rule>
+    <Rule id="V-900002.a" severity="medium" title="SRG-OS-000002">
+      <Description>&lt;VulnDiscussion&gt;Two parts &amp;amp; one rule.&lt;/VulnDiscussion&gt;</Description>
+      <Key>HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System</Key>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Check both.</RawString>
+      <ValueData>0x00000001</ValueData>
+      <ValueName>PromptOnSecureDesktop</ValueName>
+      <ValueType>Dword</ValueType>
+    </Rule>
+    <Rule id="V-900002.b" severity="medium" title="SRG-OS-000002">
+      <Description>&lt;VulnDiscussion&gt;Two parts &amp;amp; one rule.&lt;/VulnDiscussion&gt;</Description>
+      <Key>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\FVE</Key>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Check BitLocker is on.</RawString>
+      <ValueData>Westmark</ValueData>
+      <ValueName>Label</ValueName>
+      <ValueType>String</ValueType>
+    </Rule>
+    <Rule id="V-900003" severity="low" title="SRG-OS-000003">
+      <Description>&lt;VulnDiscussion&gt;Idle sessions.&lt;/VulnDiscussion&gt;</Description>
+      <Key>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services</Key>
+      <OrganizationValueRequired>True</OrganizationValueRequired>
+      <RawString>Check MaxIdleTime is under 15 minutes.</RawString>
+      <ValueData />
+      <ValueName>MaxIdleTime</ValueName>
+      <ValueType>Dword</ValueType>
+    </Rule>
+    <Rule id="V-900006" severity="medium" title="SRG-OS-000006">
+      <Description>&lt;VulnDiscussion&gt;A rule DISA later retired.&lt;/VulnDiscussion&gt;</Description>
+      <Key>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Westmark</Key>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Check Retired.</RawString>
+      <ValueData>1;2</ValueData>
+      <ValueName>Retired</ValueName>
+      <ValueType>MultiString</ValueType>
+    </Rule>
+  </RegistryRule>
+  <SecurityOptionRule dscresourcemodule="SecurityPolicyDsc">
+    <Rule id="V-900008" severity="medium" title="SRG-OS-000008">
+      <Description>&lt;VulnDiscussion&gt;The Guest account is off.&lt;/VulnDiscussion&gt;</Description>
+      <OptionName>Accounts: Guest account status</OptionName>
+      <OptionValue>Disabled</OptionValue>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Check the Guest account.</RawString>
+    </Rule>
+  </SecurityOptionRule>
+  <ServiceRule dscresourcemodule="PSDscResources">
+    <Rule id="V-900012" severity="medium" title="SRG-OS-000012">
+      <Description>&lt;VulnDiscussion&gt;Secondary Logon is off.&lt;/VulnDiscussion&gt;</Description>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Check seclogon.</RawString>
+      <ServiceName>seclogon</ServiceName>
+      <StartupType>Disabled</StartupType>
+    </Rule>
+  </ServiceRule>
+  <UserRightRule dscresourcemodule="SecurityPolicyDsc">
+    <Rule id="V-900009" severity="medium" title="SRG-OS-000009">
+      <Constant>SeDenyNetworkLogonRight</Constant>
+      <Description>&lt;VulnDiscussion&gt;Guests stay off the network.&lt;/VulnDiscussion&gt;</Description>
+      <DisplayName>Deny access to this computer from the network</DisplayName>
+      <Force>False</Force>
+      <Identity>Guests,Local account .</Identity>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Check the deny right.</RawString>
+    </Rule>
+    <Rule id="V-900010" severity="high" title="SRG-OS-000010">
+      <Constant>SeDebugPrivilege</Constant>
+      <Description>&lt;VulnDiscussion&gt;Debugging is powerful.&lt;/VulnDiscussion&gt;</Description>
+      <DisplayName>Debug programs</DisplayName>
+      <Force>True</Force>
+      <Identity />
+      <OrganizationValueRequired>True</OrganizationValueRequired>
+      <RawString>Check the debug right.</RawString>
+    </Rule>
+    <Rule id="V-900015" severity="medium" title="SRG-OS-000015">
+      <Constant>SeBackupPrivilege</Constant>
+      <Description>&lt;VulnDiscussion&gt;Backups are sensitive.&lt;/VulnDiscussion&gt;</Description>
+      <DisplayName>Back up files and directories</DisplayName>
+      <Force>False</Force>
+      <Identity />
+      <OrganizationValueRequired>True</OrganizationValueRequired>
+      <RawString>Check the backup right.</RawString>
+    </Rule>
+  </UserRightRule>
+  <WindowsFeatureRule dscresourcemodule="PSDscResources">
+    <Rule id="V-900013" severity="medium" title="SRG-OS-000013">
+      <Description>&lt;VulnDiscussion&gt;SMBv1 is old.&lt;/VulnDiscussion&gt;</Description>
+      <Name>SMB1Protocol</Name>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>Check SMB1Protocol.</RawString>
+    </Rule>
+  </WindowsFeatureRule>
+</DISASTIG>

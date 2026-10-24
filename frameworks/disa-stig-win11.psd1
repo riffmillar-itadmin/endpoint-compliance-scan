@@ -1,13 +1,15 @@
-# DISA Microsoft Windows 11 STIG, Version 2 Release 7 (benchmark date 01 Apr 2026):
-# all 282 rules, by Vuln ID. Rule data from the processed STIG in Microsoft's
-# PowerStig project (MIT), https://github.com/microsoft/PowerStig; STIG content is
-# published by DISA at https://public.cyber.mil/stigs/. Titles here are short
-# summaries; STIG Viewer has the full rule text. Levels are the severity categories.
+# DISA Microsoft Windows 11 STIG, Version 2 Release 11 (benchmark date 30 Sep 2026):
+# all 276 rules, by Vuln ID. Rules and severities from DISA's STIG
+# (U_MS_Windows_11_STIG_V2R11_Manual-xccdf.xml); automated checks from the processed
+# STIG WindowsClient-11-2.7 in Microsoft's PowerStig project (MIT),
+# https://github.com/microsoft/PowerStig; STIG content is published by DISA at
+# https://public.cyber.mil/stigs/. Titles here are short summaries; STIG Viewer has
+# the full rule text. Levels are the severity categories.
 # Field meanings are in frameworks/README.md.
 
 @{
     Id = 'DISA-STIG-Win11'
-    Name = 'DISA Windows 11 STIG V2R7'
+    Name = 'DISA Windows 11 STIG V2R11'
     Source = 'https://public.cyber.mil/stigs/'
     StigId = 'Microsoft_Windows_11_STIG'
     Levels = @('CAT I', 'CAT II', 'CAT III')
@@ -68,10 +70,10 @@
             Id = 'V-253301'
             Family = 'Account'
             Level = 'CAT II'
-            Title = 'Maximum password age: 1 to 60'
+            Title = 'Maximum password age: 1 to 180'
             Checks = @()
             Expect = @(
-                @{ Source = 'SecPol'; Name = 'MaximumPasswordAge'; Op = 'between'; Min = 1; Max = 60 }
+                @{ Source = 'SecPol'; Name = 'MaximumPasswordAge'; Op = 'between'; Min = 1; Max = 180 }
             )
         }
         @{
@@ -501,14 +503,6 @@
             Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
         }
         @{
-            Id = 'V-253268'
-            Family = 'Other'
-            Level = 'CAT III'
-            Title = 'Outdated or unused accounts provide penetration points that may go undetected.'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
             Id = 'V-253271'
             Family = 'Other'
             Level = 'CAT II'
@@ -529,14 +523,6 @@
             Family = 'Other'
             Level = 'CAT II'
             Title = 'Use of software certificates and their accompanying installation files for end users to access resources is less secu...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
-            Id = 'V-253295'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'For virtual desktop implementations (VDIs) where the virtual desktop instance is deleted or refreshed upon logoff, th...'
             Checks = @()
             Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
         }
@@ -778,31 +764,7 @@
             Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
         }
         @{
-            Id = 'V-278926'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
-            Id = 'V-278927'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
             Id = 'V-278928'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
-            Id = 'V-278929'
             Family = 'Other'
             Level = 'CAT II'
             Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
@@ -1249,16 +1211,6 @@
             )
         }
         @{
-            Id = 'V-253366'
-            Family = 'Config'
-            Level = 'CAT II'
-            Title = 'AutoConnectAllowedOEM (config) = 0'
-            Checks = @()
-            Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\WcmSvc\wifinetworkmanager\config'; Name = 'AutoConnectAllowedOEM'; Op = 'eq'; Value = 0 }
-            )
-        }
-        @{
             Id = 'V-253367'
             Family = 'Config'
             Level = 'CAT II'
@@ -1539,16 +1491,6 @@
             Checks = @()
             Expect = @(
                 @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Biometrics\FacialFeatures'; Name = 'EnhancedAntiSpoofing'; Op = 'eq'; Value = 1 }
-            )
-        }
-        @{
-            Id = 'V-253390'
-            Family = 'Config'
-            Level = 'CAT III'
-            Title = 'DisableWindowsConsumerFeatures (CloudContent) = 1'
-            Checks = @()
-            Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CloudContent'; Name = 'DisableWindowsConsumerFeatures'; Op = 'eq'; Value = 1 }
             )
         }
         @{
@@ -1947,7 +1889,7 @@
             )
         }
         @{
-            Id = 'V-253422.a'
+            Id = 'V-253422'
             Family = 'Config'
             Level = 'CAT II'
             Title = 'LetAppsActivateWithVoiceAboveLock (AppPrivacy) = 2'
@@ -1957,7 +1899,7 @@
             )
         }
         @{
-            Id = 'V-253422.b'
+            Id = 'V-289260'
             Family = 'Config'
             Level = 'CAT II'
             Title = 'LetAppsActivateWithVoice (AppPrivacy) = 2'
@@ -2118,17 +2060,6 @@
             Checks = @()
             Expect = @(
                 @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name = 'LegalNoticeText'; Op = 'notempty' }
-            )
-            Note = 'The STIG requires the DoD notice and consent text; this check confirms one is set.'
-        }
-        @{
-            Id = 'V-253446'
-            Family = 'Config'
-            Level = 'CAT III'
-            Title = 'LegalNoticeCaption (System) is set'
-            Checks = @()
-            Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name = 'LegalNoticeCaption'; Op = 'notempty' }
             )
             Note = 'The STIG requires the DoD notice and consent text; this check confirms one is set.'
         }
@@ -2956,6 +2887,22 @@
             Expect = @(
                 @{ Source = 'Feature'; Name = 'SMB1Protocol'; State = 'Disabled' }
             )
+        }
+        @{
+            Id = 'V-288475'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'All Wi-Fi Direct adapters must be disabled on the system.'
+            Checks = @()
+            Note = 'New in Microsoft Windows 11 STIG V2R11 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-288812'
+            Family = 'Other'
+            Level = 'CAT III'
+            Title = 'Unused accounts must be disabled or removed from the system after 35 days of inactivity.'
+            Checks = @()
+            Note = 'New in Microsoft Windows 11 STIG V2R11 and not automated yet; check it with STIG Viewer or another SCAP tool.'
         }
     )
 }
