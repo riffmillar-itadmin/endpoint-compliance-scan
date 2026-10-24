@@ -1,0 +1,9 @@
+{"catalog": {"groups": [
+  {"id": "PR", "class": "function", "title": "Protect", "groups": [
+    {"id": "PR.AA", "class": "category", "title": "Identity Management", "controls": [
+      {"id": "PR.AA-01", "class": "subcategory", "parts": [{"name": "statement", "prose": "Identities and credentials are managed."}]},
+      {"id": "PR.AA-02", "class": "subcategory", "props": [{"name": "status", "value": "withdrawn"}]},
+      {"id": "PR.AA-03", "class": "subcategory", "parts": [{"name": "statement", "prose": "Users are authenticated."}, {"name": "example", "prose": "Not a statement."}]}
+    ]}
+  ]}
+]}}

@@ -239,7 +239,7 @@ Describe 'Framework catalogs' {
         @{ Id = 'NIST-800-171r3'; Count = 97 }
         @{ Id = 'NIST-800-53r5'; Count = 287 }
         @{ Id = 'NIST-CSF-2.0'; Count = 106 }
-        @{ Id = 'DISA-STIG-Win11'; Count = 282 }
+        @{ Id = 'DISA-STIG-Win11'; Count = 276 }
         @{ Id = 'DISA-STIG-WS2019-MS'; Count = 247 }
         @{ Id = 'DISA-STIG-WS2019-DC'; Count = 277 }
         @{ Id = 'DISA-STIG-WS2022-MS'; Count = 246 }

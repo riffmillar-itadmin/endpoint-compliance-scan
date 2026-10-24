@@ -9,7 +9,7 @@ evidence for each requirement.
 | CMMC Level 1/2 ([NIST SP 800-171 Rev 2](https://csrc.nist.gov/pubs/sp/800/171/r2/upd1/final)) | `CMMC` | L1, L2 | 110 | 32 |
 | [NIST SP 800-171 Rev 3](https://csrc.nist.gov/pubs/sp/800/171/r3/final) | `NIST-800-171r3` | Rev3 | 97 | 24 |
 | [NIST SP 800-53 Rev 5](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final), Low and Moderate baselines | `NIST-800-53r5` | Low, Moderate | 287 | 32 |
-| [DISA Windows 11 STIG](https://public.cyber.mil/stigs/) V2R7 | `DISA-STIG-Win11` | CAT I, CAT II, CAT III | 282 | 223 |
+| [DISA Windows 11 STIG](https://public.cyber.mil/stigs/) V2R11 | `DISA-STIG-Win11` | CAT I, CAT II, CAT III | 276 | 220 |
 | DISA Windows Server 2019 STIG V3R8, member server | `DISA-STIG-WS2019-MS` | CAT I, CAT II, CAT III | 247 | 188 |
 | DISA Windows Server 2019 STIG V3R8, domain controller | `DISA-STIG-WS2019-DC` | CAT I, CAT II, CAT III | 277 | 195 |
 | DISA Windows Server 2022 STIG V2R8, member server | `DISA-STIG-WS2022-MS` | CAT I, CAT II, CAT III | 246 | 188 |
@@ -248,10 +248,39 @@ that a snapshot meeting every expectation passes. Skipped tests fail the run.
 The Tests workflow runs the suite, lint on both editions, and a live scan of the
 runner on both editions, evaluated against every framework.
 
+## Updating the catalogs
+
+The NIST and DISA STIG catalogs are generated from published data by
+`tools/Update-FrameworkCatalog.ps1`; the CMMC, CIS, PCI DSS and HIPAA catalogs are
+written by hand.
+
+```powershell
+.\tools\Update-FrameworkCatalog.ps1                                  # rebuild from the pinned sources
+.\tools\Update-FrameworkCatalog.ps1 -SourcePath .\sources -Offline   # from saved files only
+.\tools\Update-FrameworkCatalog.ps1 -Framework DISA-STIG-Win11 -StigPath .\U_MS_Windows_11_V2R12_STIG.zip -WhatIf
+```
+
+Which checks answer which requirement is data in `tools/mappings/`, not code.
+`tools/mappings/sources.psd1` pins every source file by SHA-256: NIST's OSCAL
+content, Microsoft's PowerStig processed STIGs, and DISA's STIG zips. Each file
+comes from the first place that has it with the right hash: `-SourcePath`, the
+download cache, each mirror in turn, then the PowerStig package on the PowerShell
+Gallery. A source that is down or hands back other content is reported and the
+next one is tried.
+
+A STIG catalog with a DISA zip follows that DISA release: its rules, severities
+and version are DISA's, and the automated checks come from PowerStig by Vuln ID.
+Rules new in the release are Manual until mapped, and retired rules are dropped.
+Where DISA has reworded the check of an automated rule since PowerStig's release,
+the generator lists the rule, so a person can confirm the expected value and
+record it as an override or as reviewed in `tools/mappings/disa-stig.psd1`.
+`-StigPath` tries a newer DISA release before it is pinned.
+
 ## Changelog
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.6.0 | 2026-10-24 | Catalog generator `tools/Update-FrameworkCatalog.ps1`, in PowerShell, with the check mappings as data in `tools/mappings/`. Sources are pinned by SHA-256 and fetched with failover across mirrors and the PowerShell Gallery, or read offline with `-SourcePath`. STIG catalogs can follow a DISA release newer than PowerStig's. The Windows 11 STIG catalog now follows DISA's V2R11: 276 rules, 2 new rules Manual, 8 retired rules dropped, and the maximum password age raised from 60 to 180 days. |
 | 0.5.0 | 2026-10-24 | STIG Viewer 3 checklist (`.cklb`), written beside the `.ckl` when `-StigPath` names the STIG, because STIG Viewer 3 doesn't open `.ckl` files. It follows the layout STIG Viewer 3.8.1 saves. |
 | 0.4.1 | 2026-10-24 | Fix: the STIG Viewer checklist failed with "hexadecimal value 0x00, is an invalid character" when evidence held a NUL, as some registry values do. Characters XML can't hold are now dropped from the `.ckl`, and registry strings drop trailing NULs. |
 | 0.4.0 | 2026-10-24 | Reports. A self-contained HTML report, flat JSON records for Power BI, and a STIG Viewer checklist (`.ckl`) when `-StigPath` names the DISA STIG zip or XCCDF file. Reports are named by scan ID (computer and collection time), so a shared folder sorts by computer, then time. |
