@@ -349,7 +349,7 @@ function Assert-Mapped {
     if ($missing.Count -gt 0) { throw "tools/mappings maps IDs that $Catalog doesn't have: $($missing -join ', ')." }
 }
 
-function Build-Nist171 {
+function Get-Nist171Catalog {
     $map = Read-DataFile (Join-Path $Mappings 'nist-800-171r3.psd1')
     $cat = (Read-Json (Get-PinnedFile Oscal 'NIST_SP800-171_rev3_catalog.json')).catalog
     $reqs = [Collections.Generic.List[object]]::new()
@@ -373,7 +373,7 @@ function Build-Nist171 {
     [pscustomobject]@{ Id = $meta.Id; File = 'nist-800-171r3'; Text = (ConvertTo-CatalogText $header $meta $reqs); Requirements = $reqs.Count; Note = ''; Reworded = @() }
 }
 
-function Build-Nist53 {
+function Get-Nist53Catalog {
     $map = Read-DataFile (Join-Path $Mappings 'nist-800-53r5.psd1')
     $profileIds = {
         param($File)
@@ -416,7 +416,7 @@ function Build-Nist53 {
     [pscustomobject]@{ Id = $meta.Id; File = 'nist-800-53r5'; Text = (ConvertTo-CatalogText $header $meta $reqs); Requirements = $reqs.Count; Note = ''; Reworded = @() }
 }
 
-function Build-NistCsf {
+function Get-NistCsfCatalog {
     $map = Read-DataFile (Join-Path $Mappings 'nist-csf-2.0.psd1')
     $cat = (Read-Json (Get-PinnedFile Oscal 'NIST_CSF_v2.0_catalog.json')).catalog
     $reqs = [Collections.Generic.List[object]]::new()
@@ -699,7 +699,7 @@ function Set-StigOverride {
     , $list
 }
 
-function Build-Stig {
+function Get-StigCatalog {
     param($Entry, $Map, $Benchmarks)
     $stig = Read-PowerStig $Entry.PowerStig
     $dc = $Entry.Contains('Role') -and $Entry.Role -eq 'domain controller'
@@ -796,7 +796,7 @@ $script:SourceLog = [Collections.Generic.List[object]]::new()
 $Sources = Read-DataFile (Join-Path $Mappings 'sources.psd1')
 $stigMap = Read-DataFile (Join-Path $Mappings 'disa-stig.psd1')
 
-$builders = [ordered]@{ 'NIST-800-171r3' = { Build-Nist171 }; 'NIST-800-53r5' = { Build-Nist53 }; 'NIST-CSF-2.0' = { Build-NistCsf } }
+$builders = [ordered]@{ 'NIST-800-171r3' = { Get-Nist171Catalog }; 'NIST-800-53r5' = { Get-Nist53Catalog }; 'NIST-CSF-2.0' = { Get-NistCsfCatalog } }
 foreach ($entry in @($stigMap.Catalogs)) { $builders[$entry.Id] = $entry }
 if (-not $Framework) { $Framework = @($builders.Keys) }
 $unknown = @($Framework | Where-Object { -not $builders.Contains($_) })
@@ -819,7 +819,7 @@ foreach ($d in @($Sources.Disa)) {
 
 foreach ($id in $Framework) {
     $b = $builders[$id]
-    $result = if ($b -is [scriptblock]) { & $b } else { Build-Stig $b $stigMap $benchmarks }
+    $result = if ($b -is [scriptblock]) { & $b } else { Get-StigCatalog $b $stigMap $benchmarks }
     $path = Join-Path $OutputPath "$($result.File).psd1"
     $old = if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllText($path) } else { $null }
     $changed = $old -ne $result.Text
