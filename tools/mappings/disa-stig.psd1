@@ -72,6 +72,11 @@
     # override for a rule the release doesn't have stops the build, so each one is
     # reviewed when the release changes. Reviewed lists automated rules DISA reworded
     # that a person has checked against that release; the build warns about the rest.
+    #
+    # PolicyFallback joins each rule PowerStig splits into a Group Policy value (.a)
+    # and the local setting (.b) into one requirement that reads the local setting
+    # only when no policy value exists, as the Firewall STIG's checks do. A catalog
+    # without AppliesTo applies to any Windows.
     Catalogs = @(
         @{
             Id = 'DISA-STIG-Win11'
@@ -325,6 +330,34 @@
             Reviewed = @{
                 Release = 'V1R4'
                 Rules = @('V-278029')
+            }
+        }
+        @{
+            Id = 'DISA-STIG-Firewall'
+            File = 'disa-stig-firewall'
+            PowerStig = 'WindowsFirewall-All-2.2'
+            Product = 'Windows Defender Firewall'
+            PolicyFallback = $true
+            Overrides = @{
+                'V-241989' = @{ Reason = 'Domain Profile: NA when the system is not a member of a domain.'; DomainOnly = $true }
+                'V-241992' = @{ Reason = 'Domain Profile: NA when the system is not a member of a domain.'; DomainOnly = $true }
+                'V-241993' = @{ Reason = 'Domain Profile: NA when the system is not a member of a domain.'; DomainOnly = $true }
+                'V-241994' = @{ Reason = 'Domain Profile: NA when the system is not a member of a domain.'; DomainOnly = $true }
+                'V-241995' = @{ Reason = 'Domain Profile: NA when the system is not a member of a domain.'; DomainOnly = $true }
+                'V-241996' = @{ Reason = 'Domain Profile: NA when the system is not a member of a domain.'; DomainOnly = $true }
+                'V-242004' = @{ Reason = 'NA when the system is not a member of a domain.'; DomainOnly = $true }
+                'V-242005' = @{ Reason = 'NA when the system is not a member of a domain.'; DomainOnly = $true }
+                'V-242009' = @{
+                    Reason = 'PowerStig has no title for this manual rule beyond its discussion.'
+                    Title = 'Inbound exceptions on domain workstations allow only authorized remote management hosts'
+                    Note = 'Not automated by this scanner; review the inbound firewall rules. NA for servers and for workstations not joined to a domain.'
+                }
+            }
+            # PowerStig keeps each part's text without DISA's policy-then-local wording, so
+            # these read as reworded; paths, value names and values were checked against V2R2.
+            Reviewed = @{
+                Release = 'V2R2'
+                Rules = @('V-241990', 'V-241991', 'V-241997', 'V-241998', 'V-241999', 'V-242000', 'V-242001', 'V-242002', 'V-242003', 'V-242006', 'V-242007', 'V-242008')
             }
         }
     )

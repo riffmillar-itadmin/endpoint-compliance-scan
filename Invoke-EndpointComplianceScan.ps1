@@ -137,6 +137,9 @@
     0.7.0  2026-10-24  Server 2022 and 2025 STIG catalogs follow DISA's V2R11
                        and V1R4. DomainOnly expectations are NotApplicable off
                        a domain.
+    0.8.0  2026-10-24  DISA Windows Defender Firewall STIG V2R2. Registry
+                       expectations can fall back from the Group Policy value
+                       to the local setting (FallbackPath).
 #>
 
 [CmdletBinding()]
@@ -155,7 +158,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.7.0'
+$ComplianceScanVersion = '0.8.0'
 $SnapshotSchemaVersion = 3
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
@@ -338,7 +341,10 @@ function Get-CollectionTarget {
             if (-not $r.Contains('Expect')) { continue }
             foreach ($e in @($r.Expect)) {
                 switch ("$($e.Source)") {
-                    'Registry' { $registry["$($e.Path)\$($e.Name)"] = [pscustomobject]@{ Path = $e.Path; Name = $e.Name } }
+                    'Registry' {
+                        $registry["$($e.Path)\$($e.Name)"] = [pscustomobject]@{ Path = $e.Path; Name = $e.Name }
+                        if ($e.Contains('FallbackPath')) { $registry["$($e.FallbackPath)\$($e.Name)"] = [pscustomobject]@{ Path = $e.FallbackPath; Name = $e.Name } }
+                    }
                     'Service' { if (-not $services.Contains($e.Name)) { $services.Add($e.Name) } }
                     'Feature' { if (-not $features.Contains($e.Name)) { $features.Add($e.Name) } }
                 }
@@ -1180,12 +1186,20 @@ function Test-Expectation {
         'Registry' {
             $f = Get-RegFact $Snapshot "$($Expect.Path)\$($Expect.Name)"
             if (Get-Prop $f 'Denied') { return New-CheckResult Skipped "$($Expect.Name) is not readable without elevation." }
+            $label = $Expect.Name
+            $fallback = $Expect.Contains('FallbackPath')
+            if ($fallback -and -not (Get-Prop $f 'Present')) {
+                # No Group Policy value under Path, so the local setting applies.
+                $f = Get-RegFact $Snapshot "$($Expect.FallbackPath)\$($Expect.Name)"
+                if (Get-Prop $f 'Denied') { return New-CheckResult Skipped "$($Expect.Name) (local setting) is not readable without elevation." }
+                $label = "$($Expect.Name) (local setting, no policy value)"
+            }
             if (-not (Get-Prop $f 'Present')) {
                 if ($Expect.Contains('AbsentOk') -and $Expect.AbsentOk) { return New-CheckResult Pass "$($Expect.Name) not set, which is allowed." }
-                return New-CheckResult Fail "$($Expect.Name) not set; needs $(Format-Expectation $Expect)."
+                $where = if ($fallback) { ' by policy or locally' } else { '' }
+                return New-CheckResult Fail "$($Expect.Name) not set$where; needs $(Format-Expectation $Expect)."
             }
             $actual = Get-Prop $f 'Value'
-            $label = $Expect.Name
         }
         'SecPol' {
             $actual = Get-SecPolValue $Snapshot $Expect.Name
