@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A made-up STIG in DISA's XCCDF layout, for the checklist tests. -->
+<Benchmark xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns="http://checklists.nist.gov/xccdf/1.1" id="Sample_Westmark_STIG" xml:lang="en">
+  <status date="2026-04-01">accepted</status>
+  <title>Sample Westmark Security Technical Implementation Guide</title>
+  <description>A fictional STIG for tests.</description>
+  <notice id="terms-of-use" xml:lang="en"></notice>
+  <plain-text id="release-info">Release: 3 Benchmark Date: 01 Apr 2026</plain-text>
+  <version>1</version>
+  <Group id="V-900001">
+    <title>SRG-OS-000001-GPOS-00001</title>
+    <Rule id="SV-900001r1_rule" weight="10.0" severity="medium">
+      <version>WM-00-000001</version>
+      <title>User Account Control must be on.</title>
+      <description>&lt;VulnDiscussion&gt;UAC limits what software can do.&lt;/VulnDiscussion&gt;&lt;FalsePositives&gt;&lt;/FalsePositives&gt;&lt;Documentable&gt;false&lt;/Documentable&gt;</description>
+      <reference><dc:title>DPMS Target Sample</dc:title><dc:identifier>9001</dc:identifier></reference>
+      <ident system="http://cyber.mil/legacy">V-100001</ident>
+      <ident system="http://cyber.mil/cci">CCI-000366</ident>
+      <fixtext fixref="F-900001r1_fix">Turn UAC on.</fixtext>
+      <check system="C-900001r1_chk"><check-content-ref href="Sample_Westmark_STIG.xml" name="M" /><check-content>Check EnableLUA is 1.</check-content></check>
+    </Rule>
+  </Group>
+  <Group id="V-900002">
+    <title>SRG-OS-000002-GPOS-00002</title>
+    <Rule id="SV-900002r1_rule" weight="10.0" severity="high">
+      <version>WM-00-000002</version>
+      <title>The system drive must be encrypted, with UAC on.</title>
+      <description>&lt;VulnDiscussion&gt;Two parts &amp; one rule.&lt;/VulnDiscussion&gt;</description>
+      <ident system="http://cyber.mil/cci">CCI-001199</ident>
+      <ident system="http://cyber.mil/cci">CCI-002475</ident>
+      <fixtext fixref="F-900002r1_fix">Turn on BitLocker.</fixtext>
+      <check system="C-900002r1_chk"><check-content-ref href="Sample_Westmark_STIG.xml" name="M" /><check-content>Check both.</check-content></check>
+    </Rule>
+  </Group>
+  <Group id="V-900003">
+    <title>SRG-OS-000003-GPOS-00003</title>
+    <Rule id="SV-900003r1_rule" weight="10.0" severity="low">
+      <version>WM-00-000003</version>
+      <title>Idle Remote Desktop sessions must end.</title>
+      <description>&lt;VulnDiscussion&gt;Idle sessions.&lt;/VulnDiscussion&gt;</description>
+      <fixtext fixref="F-900003r1_fix">Set an idle limit.</fixtext>
+      <check system="C-900003r1_chk"><check-content-ref href="Sample_Westmark_STIG.xml" name="M" /><check-content>Check MaxIdleTime.</check-content></check>
+    </Rule>
+  </Group>
+  <Group id="V-900004">
+    <title>SRG-OS-000004-GPOS-00004</title>
+    <Rule id="SV-900004r1_rule" weight="10.0" severity="medium">
+      <version>WM-00-000004</version>
+      <title>A rule the catalog does not have.</title>
+      <description>&lt;VulnDiscussion&gt;Not in the catalog.&lt;/VulnDiscussion&gt;</description>
+      <fixtext fixref="F-900004r1_fix">None.</fixtext>
+      <check system="C-900004r1_chk"><check-content-ref href="Sample_Westmark_STIG.xml" name="M" /><check-content>Review.</check-content></check>
+    </Rule>
+  </Group>
+  <Group id="V-900005">
+    <title>SRG-OS-000005-GPOS-00005</title>
+    <Rule id="SV-900005r1_rule" weight="10.0" severity="medium">
+      <version>WM-00-000005</version>
+      <title>Accounts must be reviewed.</title>
+      <description>&lt;VulnDiscussion&gt;Procedural.&lt;/VulnDiscussion&gt;</description>
+      <fixtext fixref="F-900005r1_fix">Review accounts.</fixtext>
+      <check system="C-900005r1_chk"><check-content-ref href="Sample_Westmark_STIG.xml" name="M" /><check-content>Review.</check-content></check>
+    </Rule>
+  </Group>
+</Benchmark>

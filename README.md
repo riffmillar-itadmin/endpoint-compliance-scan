@@ -85,8 +85,8 @@ are read, and the report files.
 # STIG CAT I rules only, and keep the raw snapshot
 .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-Win11 -Level 'CAT I' -SnapshotPath .\pc01.snapshot.json
 
-# Windows Server 2022 member server STIG
-.\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS
+# Windows Server 2022 member server STIG, with a STIG Viewer checklist, into a shared folder
+.\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R8_STIG.zip -OutputPath \\fileserver\scans
 
 # Evaluate a saved snapshot against another framework, on any OS
 pwsh -File ./Invoke-EndpointComplianceScan.ps1 -Framework NIST-800-53r5 -Level Low -FromSnapshot ./pc01.snapshot.json
@@ -100,16 +100,67 @@ Without `-Level` the scan uses the framework's highest level.
 One snapshot holds the facts for every framework, so a machine scanned once can
 be evaluated against any of them with `-FromSnapshot`.
 
-Each run writes `compliance-scan-<framework>-<computer>-<timestamp>.csv` (one row
-per requirement) and a `.json` with every check's evidence and the thresholds
-used, into `.\Reports` or `-OutputPath`. Both name the computer and its local
-accounts, so treat them as internal records.
+Reports go to `.\Reports` or `-OutputPath`; see [Reports](#reports).
 
 | Exit code | Meaning |
 | --- | --- |
 | 0 | No Fail and no Error |
 | 1 | At least one Fail |
 | 2 | At least one Error, or the scan couldn't start (including no `-Framework`) |
+
+## Reports
+
+Each run writes these files, named `compliance-scan-<scan id>-<framework>`. The
+scan ID is the computer and the UTC time the snapshot was collected, for example
+`PC01-20261020T150000Z`. In a folder of many machines' reports the names sort by
+computer, then time, and evaluating the same snapshot again replaces its reports.
+
+| File | For |
+| --- | --- |
+| `.html` | People. One self-contained page that opens offline, can be emailed, and prints to PDF. It has summary counts and a table by family, and lists requirements that can be filtered by state, family and text, each expanding to its evidence. |
+| `.records.json` | Power BI and other tools. A flat array with one record per requirement, each repeating the scan ID, computer, collection time, OS, framework and level. |
+| `.csv` | Spreadsheets. One row per requirement. |
+| `.json` | The full record: requirements, every check's evidence, and the thresholds used. |
+| `.ckl` | STIG Viewer. Written for a STIG framework when `-StigPath` names the STIG. |
+
+The reports name the computer and its local accounts, so treat them as internal
+records.
+
+### Power BI
+
+Point every machine's `-OutputPath` at one shared folder. In Power BI, choose
+Get data, then Folder, pick that folder, and filter the file list to names
+ending in `.records.json`. Combine the files: each record becomes a row. Group by
+`ScanId` for one scan, or by `ComputerName` and `CollectedUtc` for trends. With
+several frameworks scanned, filter on `Framework`.
+
+### STIG Viewer checklist
+
+The catalogs hold short titles, not DISA's rule text, so a checklist needs the
+STIG itself. Download the STIG zip from [cyber.mil](https://public.cyber.mil/stigs/downloads/)
+and pass it, or the XCCDF file inside it, with `-StigPath`:
+
+```powershell
+.\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R8_STIG.zip
+```
+
+The `.ckl` opens in STIG Viewer 2 and 3, and STIG Viewer 3 can save it as
+`.cklb`. Every rule of the STIG is listed, along with its text:
+
+| Scan result | Checklist status |
+| --- | --- |
+| Pass | Not a Finding |
+| Fail | Open |
+| NotApplicable | Not Applicable |
+| Manual, Skipped, Error | Not Reviewed |
+| Not in the catalog, or above `-Level` | Not Reviewed, with a comment saying why |
+
+Finding Details holds the evidence, and Comments holds the scan ID and any
+note. Where the catalog splits a rule in parts (`V-254343.a`, `.b`), the
+checklist takes the worst part. If the file shares fewer than 80% of the
+catalog's Vuln IDs, it is another STIG or release, and the scan stops before
+collecting anything. Without `-StigPath`, a STIG scan says how to get a
+checklist and writes the other reports.
 
 ## Results
 
@@ -199,6 +250,7 @@ runner on both editions, evaluated against every framework.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.4.0 | 2026-10-24 | Reports. A self-contained HTML report, flat JSON records for Power BI, and a STIG Viewer checklist (`.ckl`) when `-StigPath` names the DISA STIG zip or XCCDF file. Reports are named by scan ID (computer and collection time), so a shared folder sorts by computer, then time. |
 | 0.3.0 | 2026-10-23 | Windows Server: DISA STIGs for Windows Server 2019, 2022 and 2025, each for member servers and domain controllers. User rights expectations and collector, added to every STIG catalog. Kerberos policy on domain controllers. Server roles and features. Each STIG catalog names its Windows edition and build, and the scan warns when the machine differs. Local-account checks are NotApplicable on a domain controller. Snapshot schema 3. |
 | 0.2.0 | 2026-10-23 | Renamed from cmmc-endpoint-scan. Eight frameworks, one chosen per run with `-Framework` and `-Level`: CMMC, NIST SP 800-171 Rev 3, NIST SP 800-53 Rev 5 Low/Moderate, DISA Windows 11 STIG, CIS Controls v8.1, NIST CSF 2.0, PCI DSS 4.0.1, HIPAA Security Rule. Setting expectations in catalogs; optional features collector; new checks for UAC prompt behaviour, AutoPlay and blank-password logons; per-framework thresholds; snapshot schema 2. |
 | 0.1.0 | 2026-10-23 | First draft: catalog of all 110 requirements, 30 endpoint checks, CSV and JSON reports, Pester suite, CI on both editions. |
