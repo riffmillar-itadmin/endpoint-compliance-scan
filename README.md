@@ -1,15 +1,21 @@
 # endpoint-compliance-scan
 
-A read-only PowerShell scanner that checks a Windows endpoint against one
-compliance framework, chosen at run time, and reports a result with evidence for
-each requirement.
+A read-only PowerShell scanner that checks a Windows workstation or server
+against one compliance framework, chosen at run time, and reports a result with
+evidence for each requirement.
 
 | Framework | `-Framework` | Levels | Requirements | With endpoint evidence |
 | --- | --- | --- | --- | --- |
 | CMMC Level 1/2 ([NIST SP 800-171 Rev 2](https://csrc.nist.gov/pubs/sp/800/171/r2/upd1/final)) | `CMMC` | L1, L2 | 110 | 32 |
 | [NIST SP 800-171 Rev 3](https://csrc.nist.gov/pubs/sp/800/171/r3/final) | `NIST-800-171r3` | Rev3 | 97 | 24 |
 | [NIST SP 800-53 Rev 5](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final), Low and Moderate baselines | `NIST-800-53r5` | Low, Moderate | 287 | 32 |
-| [DISA Windows 11 STIG](https://public.cyber.mil/stigs/) V2R7 | `DISA-STIG-Win11` | CAT I, CAT II, CAT III | 282 | 195 |
+| [DISA Windows 11 STIG](https://public.cyber.mil/stigs/) V2R7 | `DISA-STIG-Win11` | CAT I, CAT II, CAT III | 282 | 223 |
+| DISA Windows Server 2019 STIG V3R8, member server | `DISA-STIG-WS2019-MS` | CAT I, CAT II, CAT III | 247 | 188 |
+| DISA Windows Server 2019 STIG V3R8, domain controller | `DISA-STIG-WS2019-DC` | CAT I, CAT II, CAT III | 277 | 195 |
+| DISA Windows Server 2022 STIG V2R8, member server | `DISA-STIG-WS2022-MS` | CAT I, CAT II, CAT III | 246 | 188 |
+| DISA Windows Server 2022 STIG V2R8, domain controller | `DISA-STIG-WS2022-DC` | CAT I, CAT II, CAT III | 276 | 195 |
+| DISA Windows Server 2025 STIG V1R1, member server | `DISA-STIG-WS2025-MS` | CAT I, CAT II, CAT III | 250 | 182 |
+| DISA Windows Server 2025 STIG V1R1, domain controller | `DISA-STIG-WS2025-DC` | CAT I, CAT II, CAT III | 281 | 192 |
 | [CIS Controls v8.1](https://www.cisecurity.org/controls/v8-1), endpoint safeguards | `CIS-v8.1` | IG1, IG2 | 18 (partial) | 18 |
 | [NIST Cybersecurity Framework 2.0](https://www.nist.gov/cyberframework) | `NIST-CSF-2.0` | CSF | 106 | 11 |
 | [PCI DSS v4.0.1](https://www.pcisecuritystandards.org/document_library/), endpoint requirements | `PCI-DSS-4.0.1` | PCI | 22 (partial) | 22 |
@@ -29,13 +35,40 @@ has the sources and the catalog format.
 
 Runs on Windows PowerShell 5.1 and PowerShell 7. No modules to install.
 
+## Choosing a STIG
+
+DISA writes a separate STIG for each Windows release, and for Windows Server a
+separate one for domain controllers. Pick the one that matches the machine:
+
+| Machine | `-Framework` |
+| --- | --- |
+| Windows 11 | `DISA-STIG-Win11` |
+| Windows Server 2019, 2022 or 2025, member or standalone server | `DISA-STIG-WS2019-MS`, `DISA-STIG-WS2022-MS`, `DISA-STIG-WS2025-MS` |
+| Windows Server 2019, 2022 or 2025, domain controller | `DISA-STIG-WS2019-DC`, `DISA-STIG-WS2022-DC`, `DISA-STIG-WS2025-DC` |
+
+`winver` or `(Get-CimInstance Win32_OperatingSystem).Caption` shows the release.
+Each STIG catalog names the edition and build it was written for. Scan with
+another and the scan still runs, but it warns, and the report carries the
+warning in `PlatformWarning`.
+
+A STIG rule is in one of three categories. CAT I rules are the most severe: a
+finding there can lead directly to a compromise. CAT II and CAT III are medium
+and low. `-Level 'CAT I'` runs only the CAT I rules, and with no `-Level` the scan
+covers all three.
+
+Between a fifth and a third of each STIG can't be read from the machine: a rule
+about documented procedures, an account review, or a setting the STIG leaves to
+the organization. Those are Manual, and STIG Viewer has the full check text.
+On a domain controller the local-account checks are NotApplicable, since a
+domain controller has none; its accounts are reviewed in Active Directory.
+
 ## What it changes
 
-Nothing. It reads the registry, security policy, audit policy, services,
-optional features, firewall, Defender, BitLocker, local accounts and installed
-updates. It makes no network calls. Its only side effects are two temporary
-files (the `secedit` and `auditpol` exports), deleted as soon as they are read,
-and the report files.
+Nothing. It reads the registry, security policy, user rights, audit policy,
+services, Windows features, firewall, Defender, BitLocker, local accounts and
+installed updates. It makes no network calls. Its only side effects are
+temporary files (the `secedit` and `auditpol` exports), deleted as soon as they
+are read, and the report files.
 
 ## Usage
 
@@ -51,6 +84,9 @@ and the report files.
 
 # STIG CAT I rules only, and keep the raw snapshot
 .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-Win11 -Level 'CAT I' -SnapshotPath .\pc01.snapshot.json
+
+# Windows Server 2022 member server STIG
+.\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS
 
 # Evaluate a saved snapshot against another framework, on any OS
 pwsh -File ./Invoke-EndpointComplianceScan.ps1 -Framework NIST-800-53r5 -Level Low -FromSnapshot ./pc01.snapshot.json
@@ -84,7 +120,7 @@ accounts, so treat them as internal records.
 | Error | A collector or check threw; the message is in the report |
 | Skipped | The check applies but couldn't run (usually: not elevated) |
 | Manual | The endpoint can't show this; the note says what can |
-| NotApplicable | The thing checked is absent, for example RDP idle limits with RDP off |
+| NotApplicable | The thing checked is absent, for example RDP idle limits with RDP off, or local accounts on a domain controller |
 
 A requirement takes the worst state among its evidence. Nothing passes by
 default: a fact missing from the snapshot is an Error, and a requirement whose
@@ -114,8 +150,13 @@ A requirement gets its evidence from two places.
 | SI | Recent Windows update; real-time antivirus (Defender, or another product registered with Security Center); signature age; recent scan |
 
 **Setting expectations** in the catalog, for rules that are a single setting:
-a registry value, a security policy value, an audit subcategory, a service's
-start type or an optional feature. Most of the STIG's automated rules are these.
+a registry value, a security policy value, an audit subcategory, a user right, a
+service's start type or a Windows feature. Most of the STIGs' automated rules are
+these.
+
+User rights are matched by SID, so the result is the same in any Windows display
+language. Domain Admins and Enterprise Admins are required only on a machine in
+a domain.
 
 The password checks read the local account policy. On a domain-joined machine,
 domain accounts follow the domain password policy, which is assessed on the
@@ -158,6 +199,7 @@ runner on both editions, evaluated against every framework.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.3.0 | 2026-10-23 | Windows Server: DISA STIGs for Windows Server 2019, 2022 and 2025, each for member servers and domain controllers. User rights expectations and collector, added to every STIG catalog. Kerberos policy on domain controllers. Server roles and features. Each STIG catalog names its Windows edition and build, and the scan warns when the machine differs. Local-account checks are NotApplicable on a domain controller. Snapshot schema 3. |
 | 0.2.0 | 2026-10-23 | Renamed from cmmc-endpoint-scan. Eight frameworks, one chosen per run with `-Framework` and `-Level`: CMMC, NIST SP 800-171 Rev 3, NIST SP 800-53 Rev 5 Low/Moderate, DISA Windows 11 STIG, CIS Controls v8.1, NIST CSF 2.0, PCI DSS 4.0.1, HIPAA Security Rule. Setting expectations in catalogs; optional features collector; new checks for UAC prompt behaviour, AutoPlay and blank-password logons; per-framework thresholds; snapshot schema 2. |
 | 0.1.0 | 2026-10-23 | First draft: catalog of all 110 requirements, 30 endpoint checks, CSV and JSON reports, Pester suite, CI on both editions. |
 

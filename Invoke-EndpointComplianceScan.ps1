@@ -2,11 +2,12 @@
 .SYNOPSIS
     Scans the local Windows endpoint for evidence against one compliance framework,
     chosen at run time: CMMC, NIST SP 800-171 Rev 3, NIST SP 800-53 Rev 5, the DISA
-    Windows 11 STIG, CIS Controls v8.1, NIST CSF 2.0, PCI DSS 4.0.1 or HIPAA.
+    STIGs for Windows 11 and Windows Server 2019, 2022 and 2025, CIS Controls v8.1,
+    NIST CSF 2.0, PCI DSS 4.0.1 or HIPAA.
 
 .DESCRIPTION
     Read-only. The scan changes no setting, writes nothing to the registry and makes
-    no network call. Its only side effects are two temporary files (the secedit and
+    no network call. Its only side effects are temporary files (the secedit and
     auditpol exports), deleted as soon as they are read, and the report files.
 
     It works in two stages so that every pass/fail rule can be tested anywhere:
@@ -18,16 +19,20 @@
     Each framework is a catalog in the frameworks folder (frameworks/README.md
     describes the format). A requirement gets its evidence from named checks in
     this script, from setting expectations in the catalog (a registry value, a
-    security policy value, an audit subcategory, a service or an optional
-    feature), or from both. Its result is the worst of those results:
+    security policy value, an audit subcategory, a user right, a service or a
+    Windows feature), or from both. Its result is the worst of those results:
         Fail           evidence collected and it misses the threshold
         Error          a collector or check threw; the message is in the report
         Skipped        the check applies but could not run (usually: not elevated)
         Manual         the endpoint cannot show this; the note says what can
         Pass           evidence collected and it meets the threshold
-        NotApplicable  the thing checked is absent (for example, RDP is off)
+        NotApplicable  the thing checked is absent (for example, RDP is off, or
+                       local accounts on a domain controller)
     Nothing passes by default. A fact missing from the snapshot is an Error, never
     a Pass.
+
+    A STIG catalog names the Windows edition and build it was written for. Run on
+    any other, the scan warns, and the report carries the warning.
 
     This is evidence for an assessment, not a verdict. Most requirements in most
     frameworks are procedural or need evidence from outside the endpoint, so the
@@ -45,7 +50,7 @@
 
 .PARAMETER Framework
     The framework to evaluate, by its Id or its catalog file name, for example
-    CMMC, NIST-800-53r5 or disa-stig-win11. Required; run without it to list them.
+    CMMC, NIST-800-53r5 or disa-stig-ws2022-ms. Required; run without it to list them.
 
 .PARAMETER Level
     The framework level to assess, such as L1 (CMMC), Low (NIST SP 800-53), CAT I
@@ -96,6 +101,12 @@
                        Setting expectations in catalogs, an optional features
                        collector, three new checks. Renamed from
                        Invoke-CmmcEndpointScan.ps1.
+    0.3.0  2026-10-23  Windows Server: DISA STIGs for Server 2019, 2022 and 2025,
+                       member server and domain controller. User rights
+                       expectations and collector, Kerberos policy, Server
+                       features, platform warning when a catalog is for another
+                       Windows, local accounts NotApplicable on a domain
+                       controller. Snapshot schema 3.
 #>
 
 [CmdletBinding()]
@@ -113,8 +124,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.2.0'
-$SnapshotSchemaVersion = 2
+$ComplianceScanVersion = '0.3.0'
+$SnapshotSchemaVersion = 3
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
 
@@ -323,7 +334,9 @@ foreach ($pair in @(
         @('MPSSVC Rule-Level Policy Change', '32'), @('Other Policy Change Events', '34'),
         @('User Account Management', '35'), @('Computer Account Management', '36'),
         @('Security Group Management', '37'), @('Credential Validation', '3F'), @('Detailed File Share', '44'),
-        @('Removable Storage', '45'), @('Plug and Play Events', '48'), @('Group Membership', '49'))) {
+        @('Removable Storage', '45'), @('Plug and Play Events', '48'), @('Group Membership', '49'),
+        @('Other Account Management Events', '3A'), @('Directory Service Access', '3B'),
+        @('Directory Service Changes', '3C'))) {
     $AuditSubcategoryGuid[$pair[0]] = "{0CCE92$($pair[1])$AuditGuidSuffix"
 }
 
@@ -966,7 +979,33 @@ function Invoke-Check {
 #region Expectations
 
 # The snapshot section each expectation source reads.
-$ExpectSection = @{ Registry = 'Registry'; SecPol = 'SecurityPolicy'; Audit = 'AuditPolicy'; Service = 'Services'; Feature = 'Features' }
+$ExpectSection = @{
+    Registry = 'Registry'; SecPol = 'SecurityPolicy'; Audit = 'AuditPolicy'; UserRight = 'UserRights'
+    Service = 'Services'; Feature = 'Features'
+}
+
+# Feature states that leave the feature in place, now or until a restart.
+$FeatureOnStates = @('Enabled', 'EnablePending', 'DisablePending', 'Installed', 'InstallPending', 'UninstallPending')
+
+# Well-known SIDs for the identities UserRight expectations name, so matching
+# works in any display language. '*' is the domain part of a domain-relative
+# SID. An identity not listed is matched by account name.
+$IdentitySid = @{
+    'Administrators'                                   = 'S-1-5-32-544'
+    'Users'                                            = 'S-1-5-32-545'
+    'Guests'                                           = 'S-1-5-32-546'
+    'Remote Desktop Users'                             = 'S-1-5-32-555'
+    'Service'                                          = 'S-1-5-6'
+    'Enterprise Domain Controllers'                    = 'S-1-5-9'
+    'Authenticated Users'                              = 'S-1-5-11'
+    'Local Service'                                    = 'S-1-5-19'
+    'Network Service'                                  = 'S-1-5-20'
+    'Local account'                                    = 'S-1-5-113'
+    'Local account and member of Administrators group' = 'S-1-5-114'
+    'NT Virtual Machine\Virtual Machines'              = 'S-1-5-83-0'
+    'Domain Admins'                                    = 'S-1-5-21-*-512'
+    'Enterprise Admins'                                = 'S-1-5-21-*-519'
+}
 
 function Get-ExpectLabel {
     # Short name for an expectation in the Checks column. Never holds '=' or ';'.
@@ -1034,6 +1073,70 @@ function Test-ExpectValue {
     }
 }
 
+function Format-Identity {
+    # An assigned identity as the evidence shows it: its name, or its SID when
+    # the name didn't resolve.
+    param($Entry)
+    if ("$($Entry.Name)") { return "$($Entry.Name)" }
+    return "$($Entry.Sid)"
+}
+
+function Test-IdentityMatch {
+    # True when an assigned entry (Sid, Name) is one of the catalog identities.
+    param($Entry, [string[]]$Identity)
+    foreach ($i in $Identity) {
+        $sid = $IdentitySid[$i]
+        if ($sid -and "$($Entry.Sid)") {
+            if ("$($Entry.Sid)" -like $sid) { return $true }
+            continue
+        }
+        $name = "$($Entry.Name)"
+        if ($name -eq $i -or $name.EndsWith("\$i", [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Test-UserRight {
+    # Op 'only': everyone holding the right is in Identities (empty: no one may).
+    # Op 'includes': each of Identities holds it. 'A|B' in Identities means
+    # either. Domain groups aren't required of a machine outside a domain.
+    param($Snapshot, $Expect)
+    $rights = Get-Prop $Snapshot 'UserRights'
+    $assigned = @()
+    if (Test-Prop $rights $Expect.Name) { $assigned = @(@(Get-Prop $rights $Expect.Name) | Where-Object { $null -ne $_ }) }
+    $held = @($assigned | ForEach-Object { Format-Identity $_ })
+    $ev = "$($Expect.Name) is assigned to " + $(if ($held.Count -gt 0) { $held -join ', ' } else { 'no one' })
+    $wanted = @($Expect.Identities | Where-Object { "$_" -ne '' })
+    switch ("$($Expect.Op)") {
+        'only' {
+            $allowed = @($wanted | ForEach-Object { "$_" -split '\|' })
+            $extra = @($assigned | Where-Object { -not (Test-IdentityMatch $_ $allowed) } | ForEach-Object { Format-Identity $_ })
+            if ($extra.Count -eq 0) { return New-CheckResult Pass "$ev." }
+            $limit = if ($allowed.Count -gt 0) { 'only ' + ($allowed -join ', ') } else { 'no one' }
+            return New-CheckResult Fail "$ev; allowed: $limit."
+        }
+        'includes' {
+            $inDomain = Get-Prop (Get-Prop $Snapshot 'Meta') 'PartOfDomain'
+            if ($null -eq $inDomain) { throw 'Snapshot has no Meta.PartOfDomain.' }
+            $missing = @()
+            $waived = @()
+            foreach ($w in $wanted) {
+                $alts = @("$w" -split '\|')
+                if (-not $inDomain) {
+                    $local = @($alts | Where-Object { -not "$($IdentitySid[$_])".Contains('*') })
+                    if ($local.Count -eq 0) { $waived += $w; continue }
+                    $alts = $local
+                }
+                if (@($assigned | Where-Object { Test-IdentityMatch $_ $alts }).Count -eq 0) { $missing += ($alts -join ' or ') }
+            }
+            if ($missing.Count -gt 0) { return New-CheckResult Fail "$ev; missing: $($missing -join ', ')." }
+            if ($waived.Count -gt 0) { return New-CheckResult Pass "$ev; $($waived -join ' and ') not required outside a domain." }
+            return New-CheckResult Pass "$ev."
+        }
+        default { throw "Unknown UserRight Op '$($Expect.Op)'; use only or includes." }
+    }
+}
+
 function Test-Expectation {
     # Judges one catalog expectation against the snapshot. Returns a result.
     param($Snapshot, $Expect)
@@ -1056,6 +1159,9 @@ function Test-Expectation {
         'Audit' {
             return Test-AuditSubcategory $Snapshot @(@{ Name = $Expect.Subcategory; Setting = $Expect.Setting })
         }
+        'UserRight' {
+            return Test-UserRight $Snapshot $Expect
+        }
         'Service' {
             $svc = Get-Prop (Get-Prop $Snapshot 'Services') $Expect.Name
             if ($null -eq $svc) { throw "Service '$($Expect.Name)' was not collected." }
@@ -1065,12 +1171,15 @@ function Test-Expectation {
             return New-CheckResult Fail "$ev; needs $($Expect.StartType)."
         }
         'Feature' {
+            if ("$($Expect.State)" -ne 'Disabled') { throw "Feature expectations take State = 'Disabled', not '$($Expect.State)'." }
             $feat = Get-Prop (Get-Prop $Snapshot 'Features') $Expect.Name
-            if ($null -eq $feat) { throw "Optional feature '$($Expect.Name)' was not collected." }
-            if (-not $feat.Present) { return New-CheckResult Pass "Optional feature $($Expect.Name) is not present on this Windows build." }
-            # DisabledWithPayloadRemoved is disabled too.
-            if ("$($feat.State)" -like "$($Expect.State)*") { return New-CheckResult Pass "Optional feature $($Expect.Name) is $($feat.State)." }
-            return New-CheckResult Fail "Optional feature $($Expect.Name) is $($feat.State); needs $($Expect.State)."
+            if ($null -eq $feat) { throw "Feature '$($Expect.Name)' was not collected." }
+            if (-not $feat.Present) { return New-CheckResult Pass "Feature $($Expect.Name) is not offered on this Windows build." }
+            # Disabled, DisabledWithPayloadRemoved, Available and Removed all pass.
+            if ("$($feat.State)" -in $FeatureOnStates) {
+                return New-CheckResult Fail "Feature $($Expect.Name) is $($feat.State); needs it disabled or removed."
+            }
+            return New-CheckResult Pass "Feature $($Expect.Name) is $($feat.State)."
         }
         default { throw "Unknown expectation source '$($Expect.Source)'." }
     }
@@ -1129,7 +1238,7 @@ function Get-FrameworkCatalog {
 function Format-FrameworkList {
     param([object[]]$Catalogs)
     (@($Catalogs | ForEach-Object {
-        '  {0,-16} {1} (levels: {2})' -f $_.Id, $_.Name, (@($_.Levels) -join ', ')
+        '  {0,-20} {1} (levels: {2})' -f $_.Id, $_.Name, (@($_.Levels) -join ', ')
     }) -join [Environment]::NewLine)
 }
 
@@ -1165,6 +1274,41 @@ function Format-RequirementReference {
     $format = '{Id}'
     if ($Catalog.Contains('PracticeFormat') -and $Catalog.PracticeFormat) { $format = $Catalog.PracticeFormat }
     return $format.Replace('{Family}', "$($Requirement.Family)").Replace('{Level}', "$($Requirement.Level)").Replace('{Id}', "$($Requirement.Id)")
+}
+
+$ProductTypeName = @{ 1 = 'client Windows'; 2 = 'a domain controller'; 3 = 'Windows Server (not a domain controller)' }
+
+function Get-PlatformMismatch {
+    # Why the snapshot's Windows isn't the one the catalog's AppliesTo names, or
+    # $null when it is. A catalog without AppliesTo applies to any Windows.
+    param($Catalog, $Snapshot)
+    if (-not $Catalog.Contains('AppliesTo')) { return $null }
+    $a = $Catalog.AppliesTo
+    $meta = Get-Prop $Snapshot 'Meta'
+    $type = Get-Prop $meta 'ProductType'
+    $version = $null
+    if (-not [version]::TryParse("$(Get-Prop $meta 'OSVersion')", [ref]$version) -or $null -eq $type) {
+        return "$($Catalog.Id) is written for one Windows edition and build, and the snapshot doesn't say which Windows it came from."
+    }
+    $build = $version.Build
+    $want = @()
+    $off = $false
+    if ($a.Contains('ProductTypes')) {
+        $want += (@($a.ProductTypes) | ForEach-Object { $ProductTypeName[[int]$_] }) -join ' or '
+        if ([int]$type -notin @($a.ProductTypes)) { $off = $true }
+    }
+    if ($a.Contains('Builds')) {
+        $want += 'build ' + (@($a.Builds) -join ' or ')
+        if ($build -notin @($a.Builds)) { $off = $true }
+    }
+    if ($a.Contains('MinBuild')) {
+        $want += "build $($a.MinBuild) or later"
+        if ($build -lt [int]$a.MinBuild) { $off = $true }
+    }
+    if (-not $off) { return $null }
+    $have = $ProductTypeName[[int]$type]
+    if (-not $have) { $have = "product type $type" }
+    return "$($Catalog.Id) is written for $($want -join ', '); $($meta.ComputerName) is $have, build $build. Rules may not fit this Windows; choose the framework written for it."
 }
 
 #endregion
@@ -1225,10 +1369,11 @@ function Invoke-ComplianceEvaluation {
     }
 
     [pscustomobject]@{
-        Framework    = $Catalog.Id
-        Level        = $Level
-        Checks       = @($checkResults.Values)
-        Requirements = @($requirements)
+        Framework       = $Catalog.Id
+        Level           = $Level
+        PlatformWarning = Get-PlatformMismatch $Catalog $Snapshot
+        Checks          = @($checkResults.Values)
+        Requirements    = @($requirements)
     }
 }
 
@@ -1300,8 +1445,10 @@ function Test-Elevated {
 }
 
 function Invoke-Collector {
-    # Fills one snapshot section. A collector throws NotSupportedException when
-    # its source doesn't exist on this machine (Skipped); anything else is Error.
+    # Fills one snapshot section. A collector throws PlatformNotSupportedException
+    # when the section has no meaning on this kind of Windows (NotApplicable),
+    # NotSupportedException when its source doesn't exist on this machine
+    # (Skipped); anything else is Error.
     param($Snapshot, [string]$Name, [bool]$Elevated, [switch]$RequiresAdmin, [scriptblock]$Script)
     if ($RequiresAdmin -and -not $Elevated) {
         $Snapshot.Collection[$Name] = [ordered]@{ Status = 'Skipped'; Reason = 'Needs an elevated session.' }
@@ -1311,6 +1458,10 @@ function Invoke-Collector {
     try {
         $Snapshot[$Name] = & $Script
         $Snapshot.Collection[$Name] = [ordered]@{ Status = 'Ok'; Reason = '' }
+    } catch [System.PlatformNotSupportedException] {
+        Write-Verbose "Collector $Name not applicable: $($_.Exception.Message)"
+        $Snapshot[$Name] = $null
+        $Snapshot.Collection[$Name] = [ordered]@{ Status = 'NotApplicable'; Reason = $_.Exception.Message }
     } catch [System.NotSupportedException] {
         Write-Verbose "Collector $Name skipped: $($_.Exception.Message)"
         $Snapshot[$Name] = $null
@@ -1344,6 +1495,55 @@ function Read-RegistryValue {
     return [ordered]@{ Present = $true; Value = $v; Denied = $false }
 }
 
+function Read-SecurityTemplate {
+    # Exports the given secedit areas and returns each [section] as an ordered
+    # dictionary of name = raw value.
+    param([string[]]$Area, [string]$TempFolder)
+    $tmp = Join-Path $TempFolder ("compliance-secedit-{0}.inf" -f [guid]::NewGuid())
+    try {
+        $null = & secedit.exe /export /cfg $tmp /areas @Area /quiet
+        if ($LASTEXITCODE -ne 0) { throw "secedit /export /areas $($Area -join ' ') exited with $LASTEXITCODE." }
+        $sections = [ordered]@{}
+        $current = $null
+        foreach ($line in Get-Content -LiteralPath $tmp -Encoding Unicode) {
+            if ($line -match '^\[(.+)\]$') {
+                $current = [ordered]@{}
+                $sections[$Matches[1]] = $current
+                continue
+            }
+            if ($null -ne $current -and $line -match '^\s*([^=]+?)\s*=\s*(.*?)\s*$') { $current[$Matches[1]] = $Matches[2] }
+        }
+        return $sections
+    } finally {
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function ConvertTo-IdentityEntry {
+    # One [Privilege Rights] entry: '*S-1-5-32-544' for an account secedit
+    # resolved to a SID, or a bare name it couldn't. Both become Sid and Name; an
+    # account that no longer resolves keeps an empty Sid or Name.
+    param([string]$Item)
+    $sid = ''
+    $name = ''
+    if ($Item.StartsWith('*')) {
+        $sid = $Item.Substring(1)
+        try {
+            $name = ([Security.Principal.SecurityIdentifier]::new($sid)).Translate([Security.Principal.NTAccount]).Value
+        } catch {
+            Write-Verbose "SID $sid does not resolve to a name: $($_.Exception.Message)"
+        }
+    } else {
+        $name = $Item
+        try {
+            $sid = ([Security.Principal.NTAccount]::new($Item)).Translate([Security.Principal.SecurityIdentifier]).Value
+        } catch {
+            Write-Verbose "Account '$Item' does not resolve to a SID: $($_.Exception.Message)"
+        }
+    }
+    [ordered]@{ Sid = $sid; Name = $name }
+}
+
 function Get-EndpointSnapshot {
     # Collects every fact the checks and catalogs read (see Get-CollectionTarget). Read-only.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Targets',
@@ -1351,6 +1551,7 @@ function Get-EndpointSnapshot {
     param($Targets)
     $elevated = Test-Elevated
     $os = Get-CimInstance -ClassName Win32_OperatingSystem
+    $cs = Get-CimInstance -ClassName Win32_ComputerSystem
     $snap = [ordered]@{
         SchemaVersion = $SnapshotSchemaVersion
         Meta          = [ordered]@{
@@ -1363,30 +1564,40 @@ function Get-EndpointSnapshot {
             OSCaption    = "$($os.Caption)"
             OSVersion    = "$($os.Version)"
             ProductType  = [int]$os.ProductType
+            PartOfDomain = [bool]$cs.PartOfDomain
         }
         Collection    = [ordered]@{}
     }
     $tmpDir = [IO.Path]::GetTempPath()
 
     Invoke-Collector $snap 'SecurityPolicy' $elevated -RequiresAdmin {
-        $tmp = Join-Path $tmpDir ("compliance-secpol-{0}.inf" -f [guid]::NewGuid())
-        try {
-            $null = & secedit.exe /export /cfg $tmp /areas SECURITYPOLICY /quiet
-            if ($LASTEXITCODE -ne 0) { throw "secedit /export exited with $LASTEXITCODE." }
-            $section = ''
-            $out = [ordered]@{}
-            foreach ($line in Get-Content -LiteralPath $tmp -Encoding Unicode) {
-                if ($line -match '^\[(.+)\]$') { $section = $Matches[1]; continue }
-                if ($section -ne 'System Access' -or $line -notmatch '^\s*(\w+)\s*=\s*(.*?)\s*$') { continue }
-                $key = $Matches[1]
-                $raw = $Matches[2].Trim('"')
+        # Kerberos Policy is exported only on a domain controller.
+        $template = Read-SecurityTemplate -Area SECURITYPOLICY -TempFolder $tmpDir
+        $out = [ordered]@{}
+        foreach ($section in 'System Access', 'Kerberos Policy') {
+            if (-not $template.Contains($section)) { continue }
+            foreach ($key in @($template[$section].Keys)) {
+                $raw = "$($template[$section][$key])".Trim('"')
                 $n = 0
                 if ([int]::TryParse($raw, [ref]$n)) { $out[$key] = $n } else { $out[$key] = $raw }
             }
-            $out
-        } finally {
-            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
         }
+        $out
+    }
+
+    Invoke-Collector $snap 'UserRights' $elevated -RequiresAdmin {
+        # A right nobody holds is left out of the export, and so out of the snapshot.
+        $template = Read-SecurityTemplate -Area USER_RIGHTS -TempFolder $tmpDir
+        $out = [ordered]@{}
+        if ($template.Contains('Privilege Rights')) {
+            $rights = $template['Privilege Rights']
+            foreach ($right in @($rights.Keys)) {
+                $out[$right] = @(foreach ($item in ("$($rights[$right])" -split ',')) {
+                    if ($item.Trim() -ne '') { ConvertTo-IdentityEntry $item.Trim() }
+                })
+            }
+        }
+        $out
     }
 
     Invoke-Collector $snap 'AuditPolicy' $elevated -RequiresAdmin {
@@ -1432,11 +1643,22 @@ function Get-EndpointSnapshot {
     }
 
     Invoke-Collector $snap 'Features' $elevated -RequiresAdmin {
-        if (-not (Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue)) {
+        # Optional features (DISM) on every Windows, plus roles and features
+        # (ServerManager) on Windows Server, where the Server STIGs name them.
+        $all = @{}
+        $hasOptional = [bool](Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue)
+        if (-not $hasOptional -and $snap.Meta.ProductType -eq 1) {
             throw [System.NotSupportedException]::new('Get-WindowsOptionalFeature is not available.')
         }
-        $all = @{}
-        foreach ($f in @(Get-WindowsOptionalFeature -Online)) { $all["$($f.FeatureName)"] = "$($f.State)" }
+        if ($hasOptional) {
+            foreach ($f in @(Get-WindowsOptionalFeature -Online)) { $all["$($f.FeatureName)"] = "$($f.State)" }
+        }
+        if ($snap.Meta.ProductType -ne 1) {
+            # PowerShell 7 loads ServerManager through its Windows PowerShell
+            # compatibility session and warns that it does; the warning is expected.
+            Import-Module ServerManager -ErrorAction Stop -WarningAction SilentlyContinue -Verbose:$false
+            foreach ($f in @(Get-WindowsFeature)) { $all["$($f.Name)"] = "$($f.InstallState)" }
+        }
         $out = [ordered]@{}
         foreach ($n in @($Targets.Features)) {
             if ($all.ContainsKey($n)) {
@@ -1505,6 +1727,9 @@ function Get-EndpointSnapshot {
     }
 
     Invoke-Collector $snap 'LocalAccounts' $elevated {
+        if ($snap.Meta.ProductType -eq 2) {
+            throw [System.PlatformNotSupportedException]::new('A domain controller has no local accounts; review domain accounts in Active Directory.')
+        }
         $users = @(Get-CimInstance -ClassName Win32_UserAccount -Filter 'LocalAccount=True' | ForEach-Object {
             [ordered]@{ Name = "$($_.Name)"; Sid = "$($_.SID)"; Enabled = -not $_.Disabled; PasswordRequired = [bool]$_.PasswordRequired }
         })
@@ -1541,6 +1766,7 @@ function Write-ScanSummary {
     if (-not $Catalog.Complete) {
         Write-Host 'This catalog lists only the requirements an endpoint can show evidence for; the rest of the framework is assessed elsewhere.' -ForegroundColor Yellow
     }
+    if ($Evaluation.PlatformWarning) { Write-Host $Evaluation.PlatformWarning -ForegroundColor Yellow }
     if (-not $meta.IsElevated) { Write-Host 'Not elevated: checks that need elevation are Skipped.' -ForegroundColor Yellow }
     $order = 'Fail', 'Error', 'Skipped', 'Manual', 'Pass', 'NotApplicable'
     $counts = foreach ($s in $order) { '{0} {1}' -f @($reqs | Where-Object { $_.State -eq $s }).Count, $s }
@@ -1577,20 +1803,21 @@ function Export-ScanReport {
     $Evaluation.Requirements | Export-Csv -LiteralPath "$base.csv" -NoTypeInformation -Encoding UTF8
 
     $report = [ordered]@{
-        Tool          = 'endpoint-compliance-scan'
-        Version       = $ComplianceScanVersion
-        Framework     = $Catalog.Id
-        FrameworkName = $Catalog.Name
-        Source        = $Catalog.Source
-        Complete      = [bool]$Catalog.Complete
-        Level         = $Evaluation.Level
-        ComputerName  = $meta.ComputerName
-        CollectedUtc  = $meta.CollectedUtc
-        IsElevated    = $meta.IsElevated
-        Summary       = [ordered]@{}
-        Requirements  = $Evaluation.Requirements
-        Checks        = $Evaluation.Checks
-        Thresholds    = $Thresholds
+        Tool            = 'endpoint-compliance-scan'
+        Version         = $ComplianceScanVersion
+        Framework       = $Catalog.Id
+        FrameworkName   = $Catalog.Name
+        Source          = $Catalog.Source
+        Complete        = [bool]$Catalog.Complete
+        Level           = $Evaluation.Level
+        PlatformWarning = $Evaluation.PlatformWarning
+        ComputerName    = $meta.ComputerName
+        CollectedUtc    = $meta.CollectedUtc
+        IsElevated      = $meta.IsElevated
+        Summary         = [ordered]@{}
+        Requirements    = $Evaluation.Requirements
+        Checks          = $Evaluation.Checks
+        Thresholds      = $Thresholds
     }
     foreach ($s in 'Fail', 'Error', 'Skipped', 'Manual', 'Pass', 'NotApplicable') {
         $report.Summary[$s] = @($Evaluation.Requirements | Where-Object { $_.State -eq $s }).Count
@@ -1632,6 +1859,7 @@ try {
     }
 
     $evaluation = Invoke-ComplianceEvaluation -Snapshot $snapshot -Thresholds $thresholds -Catalog $catalog -Level $Level
+    if ($evaluation.PlatformWarning) { Write-Warning $evaluation.PlatformWarning }
 
     $folder = $OutputPath
     if (-not $folder) { $folder = Join-Path $root 'Reports' }

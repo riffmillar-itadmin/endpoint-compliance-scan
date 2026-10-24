@@ -9,8 +9,10 @@
     Id = 'DISA-STIG-Win11'
     Name = 'DISA Windows 11 STIG V2R7'
     Source = 'https://public.cyber.mil/stigs/'
+    StigId = 'Microsoft_Windows_11_STIG'
     Levels = @('CAT I', 'CAT II', 'CAT III')
     Complete = $true
+    AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }
     Thresholds = @{
         LockoutThresholdMax = 3
         LockoutDurationMinMinutes = 15
@@ -2624,231 +2626,302 @@
             Id = 'V-253479'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Access Credential Manager as a trusted caller: no one'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeTrustedCredManAccessPrivilege'; Op = 'only'; Identities = @() }
+            )
         }
         @{
             Id = 'V-253480'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Access this computer from the network: Administrators, Remote Desktop Users only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeNetworkLogonRight'; Op = 'only'; Identities = @('Administrators', 'Remote Desktop Users') }
+            )
         }
         @{
             Id = 'V-253481'
             Family = 'Rights'
             Level = 'CAT I'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Act as part of the operating system: no one'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeTcbPrivilege'; Op = 'only'; Identities = @() }
+            )
         }
         @{
             Id = 'V-253482'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Allow log on locally: Administrators, Users only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeInteractiveLogonRight'; Op = 'only'; Identities = @('Administrators', 'Users') }
+            )
         }
         @{
             Id = 'V-253483'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Back up files and directories: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeBackupPrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253484'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Change the system time: Administrators, LOCAL SERVICE only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeSystemtimePrivilege'; Op = 'only'; Identities = @('Administrators', 'LOCAL SERVICE') }
+            )
         }
         @{
             Id = 'V-253485'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Create a pagefile: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeCreatePagefilePrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253486'
             Family = 'Rights'
             Level = 'CAT I'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Create a token object: no one'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeCreateTokenPrivilege'; Op = 'only'; Identities = @() }
+            )
         }
         @{
             Id = 'V-253487'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Create global objects: Administrators, LOCAL SERVICE, NETWORK SERVICE, SERVICE only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeCreateGlobalPrivilege'; Op = 'only'; Identities = @('Administrators', 'LOCAL SERVICE', 'NETWORK SERVICE', 'SERVICE') }
+            )
         }
         @{
             Id = 'V-253488'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Create permanent shared objects: no one'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeCreatePermanentPrivilege'; Op = 'only'; Identities = @() }
+            )
         }
         @{
             Id = 'V-253489'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Create symbolic links: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeCreateSymbolicLinkPrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253490'
             Family = 'Rights'
             Level = 'CAT I'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Debug Programs: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeDebugPrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253491'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Deny access to this computer from the network: includes Enterprise Admins, Domain Admins, Local account, Guests'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{
+                    Source = 'UserRight'
+                    Name = 'SeDenyNetworkLogonRight'
+                    Op = 'includes'
+                    Identities = @('Enterprise Admins', 'Domain Admins', 'Local account', 'Guests')
+                }
+            )
         }
         @{
             Id = 'V-253492'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Deny log on as a batch job: includes Enterprise Admins, Domain Admins'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeDenyBatchLogonRight'; Op = 'includes'; Identities = @('Enterprise Admins', 'Domain Admins') }
+            )
         }
         @{
             Id = 'V-253493'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Deny log on as a service: includes Enterprise Admins, Domain Admins'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeDenyServiceLogonRight'; Op = 'includes'; Identities = @('Enterprise Admins', 'Domain Admins') }
+            )
         }
         @{
             Id = 'V-253494'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Deny log on locally: includes Enterprise Admins, Domain Admins, Guests'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeDenyInteractiveLogonRight'; Op = 'includes'; Identities = @('Enterprise Admins', 'Domain Admins', 'Guests') }
+            )
         }
         @{
             Id = 'V-253495'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Deny log on through Remote Desktop Services: includes Enterprise Admins, Domain Admins, Local account, Guests'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{
+                    Source = 'UserRight'
+                    Name = 'SeDenyRemoteInteractiveLogonRight'
+                    Op = 'includes'
+                    Identities = @('Enterprise Admins', 'Domain Admins', 'Local account', 'Guests')
+                }
+            )
         }
         @{
             Id = 'V-253496'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Enable computer and user accounts to be trusted for delegation: no one'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeEnableDelegationPrivilege'; Op = 'only'; Identities = @() }
+            )
         }
         @{
             Id = 'V-253497'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Force shutdown from a remote system: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeRemoteShutdownPrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253498'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Impersonate a client after authentication: Administrators, LOCAL SERVICE, NETWORK SERVICE, RESTRICTED SERVICES\PrintSpoolerService, SERVICE only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{
+                    Source = 'UserRight'
+                    Name = 'SeImpersonatePrivilege'
+                    Op = 'only'
+                    Identities = @('Administrators', 'LOCAL SERVICE', 'NETWORK SERVICE', 'RESTRICTED SERVICES\PrintSpoolerService', 'SERVICE')
+                }
+            )
         }
         @{
             Id = 'V-253499'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Load and unload device drivers: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeLoadDriverPrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253500'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Lock pages in memory: no one'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeLockMemoryPrivilege'; Op = 'only'; Identities = @() }
+            )
         }
         @{
             Id = 'V-253501'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Manage auditing and security log: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeSecurityPrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253502'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Modify firmware environment values: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeSystemEnvironmentPrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253503'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Perform volume maintenance tasks: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeManageVolumePrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253504'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Profile single process: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeProfileSingleProcessPrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253505'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Restore files and directories: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeRestorePrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253506'
             Family = 'Rights'
             Level = 'CAT II'
-            Title = 'Inappropriate granting of user rights can provide system, administrative, and other high-level capabilities.'
+            Title = 'Take ownership of files or other objects: Administrators only'
             Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
+            Expect = @(
+                @{ Source = 'UserRight'; Name = 'SeTakeOwnershipPrivilege'; Op = 'only'; Identities = @('Administrators') }
+            )
         }
         @{
             Id = 'V-253277'
             Family = 'Feature'
             Level = 'CAT II'
-            Title = 'Optional feature SimpleTCP is not installed'
+            Title = 'Feature SimpleTCP is not installed'
             Checks = @()
             Expect = @(
                 @{ Source = 'Feature'; Name = 'SimpleTCP'; State = 'Disabled' }
@@ -2858,7 +2931,7 @@
             Id = 'V-253285.a'
             Family = 'Feature'
             Level = 'CAT II'
-            Title = 'Optional feature MicrosoftWindowsPowerShellV2 is not installed'
+            Title = 'Feature MicrosoftWindowsPowerShellV2 is not installed'
             Checks = @()
             Expect = @(
                 @{ Source = 'Feature'; Name = 'MicrosoftWindowsPowerShellV2'; State = 'Disabled' }
@@ -2868,7 +2941,7 @@
             Id = 'V-253285.b'
             Family = 'Feature'
             Level = 'CAT II'
-            Title = 'Optional feature MicrosoftWindowsPowerShellV2Root is not installed'
+            Title = 'Feature MicrosoftWindowsPowerShellV2Root is not installed'
             Checks = @()
             Expect = @(
                 @{ Source = 'Feature'; Name = 'MicrosoftWindowsPowerShellV2Root'; State = 'Disabled' }
@@ -2878,7 +2951,7 @@
             Id = 'V-253286'
             Family = 'Feature'
             Level = 'CAT II'
-            Title = 'Optional feature SMB1Protocol is not installed'
+            Title = 'Feature SMB1Protocol is not installed'
             Checks = @()
             Expect = @(
                 @{ Source = 'Feature'; Name = 'SMB1Protocol'; State = 'Disabled' }
