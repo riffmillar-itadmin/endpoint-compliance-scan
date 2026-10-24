@@ -1,14 +1,15 @@
-# DISA Microsoft Windows Server 2022 STIG (member server), Version 2 Release 8
-# (benchmark date 01 Apr 2026): all 246 rules, by Vuln ID. Rule data from the
-# processed STIG in Microsoft's PowerStig project (MIT),
-# https://github.com/microsoft/PowerStig; STIG content is published by DISA at
-# https://public.cyber.mil/stigs/. Titles here are short summaries; STIG Viewer has
-# the full rule text. Levels are the severity categories.
+# DISA Microsoft Windows Server 2022 STIG (member server), Version 2 Release 11
+# (benchmark date 30 Sep 2026): all 242 rules, by Vuln ID. Rules and severities from
+# DISA's STIG (U_MS_Windows_Server_2022_STIG_V2R11_Manual-xccdf.xml); automated
+# checks from the processed STIG WindowsServer-2022-MS-2.8 in Microsoft's PowerStig
+# project (MIT), https://github.com/microsoft/PowerStig; STIG content is published
+# by DISA at https://public.cyber.mil/stigs/. Titles here are short summaries; STIG
+# Viewer has the full rule text. Levels are the severity categories.
 # Field meanings are in frameworks/README.md.
 
 @{
     Id = 'DISA-STIG-WS2022-MS'
-    Name = 'DISA Windows Server 2022 member server STIG V2R8'
+    Name = 'DISA Windows Server 2022 member server STIG V2R11'
     Source = 'https://public.cyber.mil/stigs/'
     StigId = 'MS_Windows_Server_2022_MS_STIG'
     Levels = @('CAT I', 'CAT II', 'CAT III')
@@ -69,10 +70,10 @@
             Id = 'V-254289'
             Family = 'Account'
             Level = 'CAT II'
-            Title = 'Maximum password age: 1 to 60'
+            Title = 'Maximum password age: 1 to 180'
             Checks = @()
             Expect = @(
-                @{ Source = 'SecPol'; Name = 'MaximumPasswordAge'; Op = 'between'; Min = 1; Max = 60 }
+                @{ Source = 'SecPol'; Name = 'MaximumPasswordAge'; Op = 'between'; Min = 1; Max = 180 }
             )
         }
         @{
@@ -700,31 +701,7 @@
             Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
         }
         @{
-            Id = 'V-278942'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
-            Id = 'V-278943'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
             Id = 'V-278944'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
-            Id = 'V-278945'
             Family = 'Other'
             Level = 'CAT II'
             Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
@@ -962,6 +939,7 @@
                     Name = '\\*\NETLOGON'
                     Op = 'eq'
                     Value = 'RequireMutualAuthentication=1, RequireIntegrity=1'
+                    DomainOnly = $true
                 }
             )
         }
@@ -978,6 +956,7 @@
                     Name = '\\*\SYSVOL'
                     Op = 'eq'
                     Value = 'RequireMutualAuthentication=1, RequireIntegrity=1'
+                    DomainOnly = $true
                 }
             )
         }
@@ -1014,7 +993,14 @@
             Title = 'EnableVirtualizationBasedSecurity (DeviceGuard) = 1'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'; Name = 'EnableVirtualizationBasedSecurity'; Op = 'eq'; Value = 1 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'
+                    Name = 'EnableVirtualizationBasedSecurity'
+                    Op = 'eq'
+                    Value = 1
+                    DomainOnly = $true
+                }
             )
         }
         @{
@@ -1030,6 +1016,7 @@
                     Name = 'RequirePlatformSecurityFeatures'
                     Op = 'in'
                     Values = @(1, 3)
+                    DomainOnly = $true
                 }
             )
         }
@@ -1218,11 +1205,12 @@
             Id = 'V-254359'
             Family = 'Config'
             Level = 'CAT II'
-            Title = 'MaxSize (Security) >= 1234569216'
+            Title = 'MaxSize (Security) >= 5120000'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\Security'; Name = 'MaxSize'; Op = 'ge'; Value = 1234569216 }
+                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\Security'; Name = 'MaxSize'; Op = 'ge'; Value = 5120000 }
             )
+            Note = 'DISA''s value is an example: the Security log must hold at least one week of records in your environment.'
         }
         @{
             Id = 'V-254360'
@@ -1251,7 +1239,14 @@
             Title = 'NoDataExecutionPrevention (Explorer) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'; Name = 'NoDataExecutionPrevention'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'
+                    Name = 'NoDataExecutionPrevention'
+                    Op = 'eq'
+                    Value = 0
+                    AbsentOk = $true
+                }
             )
         }
         @{
@@ -1261,7 +1256,14 @@
             Title = 'NoHeapTerminationOnCorruption (Explorer) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'; Name = 'NoHeapTerminationOnCorruption'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'
+                    Name = 'NoHeapTerminationOnCorruption'
+                    Op = 'eq'
+                    Value = 0
+                    AbsentOk = $true
+                }
             )
         }
         @{
@@ -1277,6 +1279,7 @@
                     Name = 'PreXPSP2ShellProtocolBehavior'
                     Op = 'eq'
                     Value = 0
+                    AbsentOk = $true
                 }
             )
         }
@@ -1347,7 +1350,14 @@
             Title = 'AllowBasicAuthInClear (Feeds) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Feeds'; Name = 'AllowBasicAuthInClear'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Feeds'
+                    Name = 'AllowBasicAuthInClear'
+                    Op = 'eq'
+                    Value = 0
+                    AbsentOk = $true
+                }
             )
         }
         @{
@@ -1393,7 +1403,7 @@
             Title = 'SafeForScripting (Installer) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'; Name = 'SafeForScripting'; Op = 'eq'; Value = 0 }
+                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'; Name = 'SafeForScripting'; Op = 'eq'; Value = 0; AbsentOk = $true }
             )
         }
         @{
@@ -1568,7 +1578,7 @@
             Title = 'LsaCfgFlags (DeviceGuard) = 1'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'; Name = 'LsaCfgFlags'; Op = 'eq'; Value = 1 }
+                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'; Name = 'LsaCfgFlags'; Op = 'eq'; Value = 1; DomainOnly = $true }
             )
         }
         @{
@@ -1683,17 +1693,6 @@
             Checks = @()
             Expect = @(
                 @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name = 'LegalNoticeText'; Op = 'notempty' }
-            )
-            Note = 'The STIG requires the DoD notice and consent text; this check confirms one is set.'
-        }
-        @{
-            Id = 'V-254458'
-            Family = 'Config'
-            Level = 'CAT III'
-            Title = 'LegalNoticeCaption (System) is set'
-            Checks = @()
-            Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name = 'LegalNoticeCaption'; Op = 'notempty' }
             )
             Note = 'The STIG requires the DoD notice and consent text; this check confirms one is set.'
         }
@@ -2064,6 +2063,7 @@
                     Name = 'SaveZoneInformation'
                     Op = 'eq'
                     Value = 2
+                    AbsentOk = $true
                 }
             )
         }

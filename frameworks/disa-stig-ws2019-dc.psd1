@@ -1351,7 +1351,14 @@
             Title = 'AllowBasicAuthInClear (Feeds) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Feeds'; Name = 'AllowBasicAuthInClear'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Internet Explorer\Feeds'
+                    Name = 'AllowBasicAuthInClear'
+                    Op = 'eq'
+                    Value = 0
+                    AbsentOk = $true
+                }
             )
         }
         @{
@@ -1815,7 +1822,14 @@
             Title = 'NoDataExecutionPrevention (Explorer) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'; Name = 'NoDataExecutionPrevention'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'
+                    Name = 'NoDataExecutionPrevention'
+                    Op = 'eq'
+                    Value = 0
+                    AbsentOk = $true
+                }
             )
         }
         @{
@@ -2034,7 +2048,14 @@
             Title = 'NoHeapTerminationOnCorruption (Explorer) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'; Name = 'NoHeapTerminationOnCorruption'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Explorer'
+                    Name = 'NoHeapTerminationOnCorruption'
+                    Op = 'eq'
+                    Value = 0
+                    AbsentOk = $true
+                }
             )
         }
         @{
@@ -2050,6 +2071,7 @@
                     Name = 'PreXPSP2ShellProtocolBehavior'
                     Op = 'eq'
                     Value = 0
+                    AbsentOk = $true
                 }
             )
         }
@@ -2070,7 +2092,7 @@
             Title = 'SafeForScripting (Installer) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'; Name = 'SafeForScripting'; Op = 'eq'; Value = 0 }
+                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'; Name = 'SafeForScripting'; Op = 'eq'; Value = 0; AbsentOk = $true }
             )
         }
         @{
@@ -2233,6 +2255,7 @@
                     Name = 'SaveZoneInformation'
                     Op = 'eq'
                     Value = 2
+                    AbsentOk = $true
                 }
             )
         }

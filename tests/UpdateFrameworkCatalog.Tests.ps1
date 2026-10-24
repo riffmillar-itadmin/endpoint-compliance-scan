@@ -320,7 +320,7 @@ Describe 'STIG catalog from PowerStig' {
     It "follows PowerStig's release when there is no DISA zip" {
         $Stig.Name | Should -Be 'DISA Westmark Sample STIG V1R2'
         $Stig.StigId | Should -Be 'Sample_Westmark_STIG'
-        $Stig.Requirements.Count | Should -Be 15
+        $Stig.Requirements.Count | Should -Be 16
         $Run.Results[0].Note | Should -BeLike '*PowerStig Sample-1.2'
         $Run.Warnings.Count | Should -Be 0
     }
@@ -350,6 +350,13 @@ Describe 'STIG catalog from PowerStig' {
         $r.Expect.Count | Should -Be 1
         foreach ($k in $Expect.Keys) { $r.Expect[0][$k] | Should -Be $Expect[$k] -Because "$Id Expect.$k" }
         $r.Contains('Note') | Should -BeFalse
+    }
+
+    It 'allows an unset value where the STIG says the default is compliant' {
+        $r = Get-Requirement $Stig 'V-900016'
+        $r.Expect[0].AbsentOk | Should -BeTrue
+        $r.Expect[0].Value | Should -Be 0
+        (Get-Requirement $Stig 'V-900001').Expect[0].Contains('AbsentOk') | Should -BeFalse
     }
 
     It 'gives a manual rule its named check when the discussion matches' {
@@ -405,7 +412,7 @@ Describe 'STIG catalog following a DISA release' {
     It "takes DISA's version, release and rule list" {
         $Stig.Name | Should -Be 'DISA Westmark Sample STIG V1R3'
         @($Plain.Requirements | ForEach-Object { $_.Id }) | Should -Be @('V-900005', 'V-900001', 'V-900002.a', 'V-900002.b', 'V-900003', 'V-900004')
-        $PlainRun.Results[0].Note | Should -BeLike '*DISA V1R3, PowerStig Sample-1.2: 1 new rule(s) Manual, 10 retired rule(s) dropped (V-900007, *'
+        $PlainRun.Results[0].Note | Should -BeLike '*DISA V1R3, PowerStig Sample-1.2: 1 new rule(s) Manual, 11 retired rule(s) dropped (V-900007, *'
     }
 
     It 'takes levels from DISA, by the base Vuln ID for split rules' {
@@ -448,6 +455,37 @@ Describe 'STIG catalog following a DISA release' {
         $r.Title | Should -Be 'Idle limit'
         $r.Expect[0].Max | Should -Be 600000
         $run.Results[0].Reworded.Count | Should -Be 0
+    }
+
+    It 'marks every expectation of a DomainOnly override, and refuses one on a rule without expectations' {
+        $maps = Copy-FixtureMapping 'disa-stig.psd1' @{ "                    MoveTo = 'V-900004'" = "                    MoveTo = 'V-900004'`n                }`n                'V-900002.a' = @{`n                    Reason = 'Not applicable off a domain.'`n                    DomainOnly = `$true" }
+        $run = Invoke-Generator -Framework 'DISA-STIG-Sample' -StigPath $DisaFixture -Mappings $maps
+        $r = Get-Requirement (Read-Catalog $run.Folder 'disa-stig-sample') 'V-900002.a'
+        $r.Expect[0].DomainOnly | Should -BeTrue
+        (Get-Requirement (Read-Catalog $run.Folder 'disa-stig-sample') 'V-900001').Expect[0].Contains('DomainOnly') | Should -BeFalse
+        $manual = Copy-FixtureMapping 'disa-stig.psd1' @{ "                    MoveTo = 'V-900004'" = "                    MoveTo = 'V-900004'`n                }`n                'V-900005' = @{`n                    DomainOnly = `$true" }
+        { Invoke-Generator -Framework 'DISA-STIG-Sample' -StigPath $DisaFixture -Mappings $manual } | Should -Throw '*V-900005 DomainOnly*no expectations*'
+    }
+
+    It 'follows the DISA benchmark the catalog names, not only PowerStig''s ID' {
+        $other = Copy-FixtureMapping 'disa-stig.psd1' @{ "            NamedByText = `$true" = "            DisaBenchmark = 'Another_Westmark_STIG'`n            NamedByText = `$true" }
+        $run = Invoke-Generator -Framework 'DISA-STIG-Sample' -StigPath $DisaFixture -Mappings $other
+        (Read-Catalog $run.Folder 'disa-stig-sample').Name | Should -Be 'DISA Westmark Sample STIG V1R2'
+        $same = Copy-FixtureMapping 'disa-stig.psd1' @{ "            NamedByText = `$true" = "            DisaBenchmark = 'Sample_Westmark_STIG'`n            NamedByText = `$true" }
+        $run = Invoke-Generator -Framework 'DISA-STIG-Sample' -StigPath $DisaFixture -Mappings $same
+        (Read-Catalog $run.Folder 'disa-stig-sample').Name | Should -Be 'DISA Westmark Sample STIG V1R3'
+    }
+
+    It "leaves out the rules DISA's STIG IDs mark as for the other server role" {
+        $maps = Copy-FixtureMapping 'disa-stig.psd1' @{
+            "            NamedByText = `$true" = "            NotForRole = '^WM-00-00000[34]`$'`n            NamedByText = `$true"
+            "                    MoveTo = 'V-900004'" = "                    MoveTo = 'V-900005'"
+        }
+        $run = Invoke-Generator -Framework 'DISA-STIG-Sample' -StigPath $DisaFixture -Mappings $maps
+        $ids = @((Read-Catalog $run.Folder 'disa-stig-sample').Requirements | ForEach-Object { $_.Id })
+        $ids | Should -Not -Contain 'V-900003'
+        $ids | Should -Not -Contain 'V-900004'
+        $run.Results[0].Note | Should -BeLike '*1 rule(s) now for the other role only (V-900003)'
     }
 
     It 'stops on an override for a rule the release does not have' {
@@ -497,7 +535,7 @@ Describe 'Generated output' {
             }
         } -args (Join-Path $Root 'Invoke-EndpointComplianceScan.ps1'), $out, (Join-Path $PSScriptRoot 'fixtures/compliant.json'), (Join-Path $Root 'ComplianceScan.example.psd1')
         $LASTEXITCODE | Should -Be 0
-        @($job) | Should -Be @('DISA-STIG-Sample=15/15', 'NIST-800-171r3=3/3', 'NIST-800-53r5=3/3', 'NIST-CSF-2.0=2/2')
+        @($job) | Should -Be @('DISA-STIG-Sample=16/16', 'NIST-800-171r3=3/3', 'NIST-800-53r5=3/3', 'NIST-CSF-2.0=2/2')
     }
 
     It 'reports an unchanged catalog as unchanged and leaves it alone' {

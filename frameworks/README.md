@@ -13,9 +13,9 @@ the script itself doesn't change unless a requirement needs a new named check.
 | `nist-800-53r5.psd1` | NIST's OSCAL catalog and SP 800-53B baseline profiles, release 5.2.0 | The 287 controls and enhancements in the Moderate baseline, 149 of them also in Low |
 | `nist-csf-2.0.psd1` | NIST's OSCAL CSF 2.0 catalog | All 106 subcategories |
 | `disa-stig-win11.psd1` | DISA Windows 11 STIG V2R11 (`U_MS_Windows_11_V2R11_STIG.zip`), with automated checks from Microsoft's [PowerStig](https://github.com/microsoft/PowerStig) (MIT) processed STIG 2.7 | All 276 rules by Vuln ID; titles are short summaries, so STIG Viewer has the full text. The 2 rules new since V2R7 are Manual |
-| `disa-stig-ws2019-ms.psd1`, `disa-stig-ws2019-dc.psd1` | DISA Windows Server 2019 STIG V3R8, member server and domain controller, from PowerStig | All 247 and 277 rules |
-| `disa-stig-ws2022-ms.psd1`, `disa-stig-ws2022-dc.psd1` | DISA Windows Server 2022 STIG V2R8, member server and domain controller, from PowerStig | All 246 and 276 rules |
-| `disa-stig-ws2025-ms.psd1`, `disa-stig-ws2025-dc.psd1` | DISA Windows Server 2025 STIG V1R1, member server and domain controller, from PowerStig | All 250 and 281 rules |
+| `disa-stig-ws2019-ms.psd1`, `disa-stig-ws2019-dc.psd1` | DISA Windows Server 2019 STIG V3R8, member server and domain controller, from PowerStig (DISA has sunset this STIG) | All 247 and 277 rules |
+| `disa-stig-ws2022-ms.psd1`, `disa-stig-ws2022-dc.psd1` | DISA Windows Server 2022 STIG V2R11 (`U_MS_Windows_Server_2022_V2R11_STIG.zip`), member server and domain controller, with automated checks from PowerStig processed STIG 2.8 | All 242 and 271 rules |
+| `disa-stig-ws2025-ms.psd1`, `disa-stig-ws2025-dc.psd1` | DISA Windows Server 2025 STIG V1R4 (`U_MS_Windows_Server_2025_V1R4_STIG.zip`), member server and domain controller, with automated checks from PowerStig processed STIG 1.1 | All 258 and 288 rules; the 12 rules new since V1R1 are Manual |
 | `cis-controls-v8.1.psd1` | CIS Critical Security Controls v8.1 | Partial: the 18 IG1/IG2 safeguards an endpoint can show evidence for |
 | `pci-dss-4.0.1.psd1` | PCI DSS v4.0.1 | Partial: the 22 requirements an endpoint can show evidence for |
 | `hipaa-security-rule.psd1` | 45 CFR Part 164, Subpart C | Partial: all of 164.312, plus the endpoint-relevant specifications of 164.308 and 164.310 |
@@ -100,6 +100,10 @@ Operators for `Registry` and `SecPol`:
 | `between` | `Min`, `Max` | is a number in this range, inclusive |
 | `in` | `Values` | equals one of them |
 | `notempty` | | is not blank |
+
+`DomainOnly = $true` on any expectation makes it NotApplicable on a machine that
+isn't joined to a domain, for STIG rules that say "for standalone or
+nondomain-joined systems, this is NA".
 
 `Also = @(...)` lists extra values that pass, for example `Also = @(0, -1)` on a
 lockout duration where 0 and -1 mean "until an administrator unlocks it".

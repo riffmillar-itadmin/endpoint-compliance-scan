@@ -56,13 +56,26 @@
         )
     }
 
-    # DISA STIG zips, matched to catalogs by the benchmark ID inside them.
+    # DISA STIG zips, matched to catalogs by the benchmark ID inside them. DISA has
+    # sunset the Server 2019 STIG, so those catalogs stay on PowerStig's release.
     Disa = @(
         @{
             Benchmark = 'Microsoft_Windows_11_STIG'
             Name = 'U_MS_Windows_11_V2R11_STIG.zip'
             Sha256 = '5a1337e899f113a2482debd3ef240a867fdd205423cbf134e8961de249260d54'
             Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_11_V2R11_STIG.zip')
+        }
+        @{
+            Benchmark = 'MS_Windows_Server_2022_STIG'
+            Name = 'U_MS_Windows_Server_2022_V2R11_STIG.zip'
+            Sha256 = '808e83970c4f27590f31435856be9810e02d8f72d3c0a67c0a195cae46dbf48e'
+            Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_Server_2022_V2R11_STIG.zip')
+        }
+        @{
+            Benchmark = 'MS_Windows_Server_2025_STIG'
+            Name = 'U_MS_Windows_Server_2025_V1R4_STIG.zip'
+            Sha256 = '0b83a3d42789577e5850d1bc60474af2e4c28b28b155f21f7b6a486ee0c1d84e'
+            Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_Server_2025_V1R4_STIG.zip')
         }
     )
 }

@@ -585,6 +585,8 @@ function ConvertTo-StigRequirement {
             $expect = [ordered]@{}; foreach ($k in $base.Keys) { $expect[$k] = $base[$k] }
             $expect.Op = 'eq'
             $expect.Value = if ($null -ne $n) { ConvertTo-CatalogNumber $n } else { $v }
+            # "(or if the Value Name does not exist)": the default is compliant.
+            if ((Get-StigData $d 'RawString') -match 'or if the Value Name does not exist') { $expect.AbsentOk = $true }
             $title += " = $v"
         }
     } elseif ($type -in 'AccountPolicyRule', 'SecurityOptionRule') {
@@ -694,9 +696,21 @@ function Set-StigOverride {
             $r.Level = $Severity[$Disa[$o.MoveTo].Severity]
         }
         foreach ($k in 'Title', 'Checks', 'Expect', 'Note') { if ($o.Contains($k)) { $r[$k] = $o[$k] } }
+        if ($o.Contains('DomainOnly') -and $o.DomainOnly) {
+            if (-not $r.Contains('Expect')) { throw "tools/mappings marks $id DomainOnly, but it has no expectations." }
+            foreach ($e in @($r.Expect)) { $e.DomainOnly = $true }
+        }
         $null = $Reworded.Remove($id)
     }
     , $list
+}
+
+function Get-DisaBenchmarkId {
+    # The benchmark ID of the DISA STIG a catalog follows. PowerStig splits the
+    # server STIGs by role, with IDs of its own, so those catalogs name DISA's.
+    param($Entry)
+    if ($Entry.Contains('DisaBenchmark')) { return $Entry.DisaBenchmark }
+    (Read-PowerStig $Entry.PowerStig).StigId
 }
 
 function Get-StigCatalog {
@@ -717,7 +731,7 @@ function Get-StigCatalog {
     $note = "PowerStig $($Entry.PowerStig)"
     $reworded = [Collections.Generic.List[string]]::new()
 
-    $bench = $Benchmarks[$stig.StigId]
+    $bench = $Benchmarks[$(if ($Entry.Contains('DisaBenchmark')) { $Entry.DisaBenchmark } else { $stig.StigId })]
     if ($bench) {
         # Follow the DISA release: its rules and severities, PowerStig's automation.
         if (-not ($bench.ReleaseInfo -match 'Release: (\d+) Benchmark Date: (\d+ \w+ \d+)')) { throw "$($bench.FileName): unexpected release info '$($bench.ReleaseInfo)'." }
@@ -730,19 +744,18 @@ function Get-StigCatalog {
         $disa = @{}
         foreach ($b in $bench.Rules) { $disa[$b.GroupId] = $b }
         $retired = @($have | Where-Object { -not $disa.ContainsKey($_) })
-        # The other role's PowerStig file says which server rules aren't for this role.
-        $otherRole = @()
-        if ($Entry.Contains('Role')) {
-            $other = if ($dc) { $Entry.PowerStig -replace '-DC-', '-MS-' } else { $Entry.PowerStig -replace '-MS-', '-DC-' }
-            $otherRole = @((Read-PowerStig $other).Rules | ForEach-Object { $_.Id -replace '\.[a-z]$', '' })
-        }
+        # A server STIG covers both roles; its STIG IDs (WN22-DC-..., WN22-MS-...)
+        # mark the rules that are for one role only.
+        $notForRole = { param($Rule) $Entry.Contains('NotForRole') -and $Rule.RuleVersion -match $Entry.NotForRole }
+        $otherRole = @($bench.Rules | Where-Object { & $notForRole $_ } | ForEach-Object { $_.GroupId })
+        $movedRole = @($have | Where-Object { $otherRole -contains $_ })
         $kept = [Collections.Generic.List[object]]::new()
         $flat = { param($Text) ([regex]::Replace("$Text", '\s+', ' ')).Trim().ToLowerInvariant() }
         $raw = @{}
         foreach ($rule in $stig.Rules) { $raw[$rule.Id] = Get-StigData $rule.Data 'RawString' }
         foreach ($r in $reqs) {
             $b = $disa[(& $baseId $r.Id)]
-            if (-not $b) { continue }
+            if (-not $b -or $otherRole -contains $b.GroupId) { continue }
             $r.Level = $Severity[$b.Severity]
             # Automation carries over by Vuln ID. Where DISA has since reworded the
             # check, list the rule so a person can confirm the expected value.
@@ -765,6 +778,7 @@ function Get-StigCatalog {
         $source = "Rules and severities from DISA's STIG ($([IO.Path]::GetFileName($bench.FileName))); automated checks from the processed STIG $($Entry.PowerStig) in Microsoft's PowerStig project (MIT), https://github.com/microsoft/PowerStig;"
         $added = @($reqs | Where-Object { $_.Contains('Note') -and $_.Note -like 'New in *' }).Count
         $note = "DISA V$($version)R$release, PowerStig $($Entry.PowerStig): $added new rule(s) Manual, $($retired.Count) retired rule(s) dropped$(if ($retired.Count) { " ($($retired -join ', '))" })"
+        if ($movedRole.Count) { $note += ", $($movedRole.Count) rule(s) now for the other role only ($($movedRole -join ', '))" }
     }
 
     $auto = @($reqs | Where-Object { $_.Contains('Expect') -or $_.Checks.Count -gt 0 }).Count
@@ -812,7 +826,7 @@ foreach ($p in @($StigPath | Where-Object { $_ })) {
 $wantStigs = @($stigMap.Catalogs | Where-Object { $Framework -contains $_.Id })
 foreach ($d in @($Sources.Disa)) {
     if ($benchmarks.ContainsKey($d.Benchmark)) { continue }
-    $needed = @($wantStigs | Where-Object { (Read-PowerStig $_.PowerStig).StigId -eq $d.Benchmark }).Count -gt 0
+    $needed = @($wantStigs | Where-Object { (Get-DisaBenchmarkId $_) -eq $d.Benchmark }).Count -gt 0
     if (-not $needed) { continue }
     $benchmarks[$d.Benchmark] = Read-StigBenchmark (Get-SourceFile -Name $d.Name -Sha256 $d.Sha256 -Urls @($d.Urls) @Fetch)
 }

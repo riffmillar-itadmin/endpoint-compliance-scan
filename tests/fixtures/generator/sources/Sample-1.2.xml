@@ -76,6 +76,15 @@
       <ValueName>Retired</ValueName>
       <ValueType>MultiString</ValueType>
     </Rule>
+    <Rule id="V-900016" severity="low" title="SRG-OS-000016">
+      <Description>&lt;VulnDiscussion&gt;The default is compliant.&lt;/VulnDiscussion&gt;</Description>
+      <Key>HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Westmark</Key>
+      <OrganizationValueRequired>False</OrganizationValueRequired>
+      <RawString>If it exists and is configured with a value of "0x00000000 (0) (or if the Value Name does not exist)", this is not a finding.</RawString>
+      <ValueData>0</ValueData>
+      <ValueName>Legacy</ValueName>
+      <ValueType>Dword</ValueType>
+    </Rule>
   </RegistryRule>
   <SecurityOptionRule dscresourcemodule="SecurityPolicyDsc">
     <Rule id="V-900008" severity="medium" title="SRG-OS-000008">
