@@ -1,14 +1,15 @@
-# DISA Microsoft Windows Server 2025 STIG (domain controller), Version 1 Release 1
-# (benchmark date 26 Jan 2026): all 281 rules, by Vuln ID. Rule data from the
-# processed STIG in Microsoft's PowerStig project (MIT),
-# https://github.com/microsoft/PowerStig; STIG content is published by DISA at
-# https://public.cyber.mil/stigs/. Titles here are short summaries; STIG Viewer has
-# the full rule text. Levels are the severity categories.
+# DISA Microsoft Windows Server 2025 STIG (domain controller), Version 1 Release 4
+# (benchmark date 30 Sep 2026): all 288 rules, by Vuln ID. Rules and severities from
+# DISA's STIG (U_MS_Windows_Server_2025_STIG_V1R4_Manual-xccdf.xml); automated
+# checks from the processed STIG WindowsServer-2025-DC-1.1 in Microsoft's PowerStig
+# project (MIT), https://github.com/microsoft/PowerStig; STIG content is published
+# by DISA at https://public.cyber.mil/stigs/. Titles here are short summaries; STIG
+# Viewer has the full rule text. Levels are the severity categories.
 # Field meanings are in frameworks/README.md.
 
 @{
     Id = 'DISA-STIG-WS2025-DC'
-    Name = 'DISA Windows Server 2025 domain controller STIG V1R1'
+    Name = 'DISA Windows Server 2025 domain controller STIG V1R4'
     Source = 'https://public.cyber.mil/stigs/'
     StigId = 'MS_Windows_Server_2025_DC_STIG'
     Levels = @('CAT I', 'CAT II', 'CAT III')
@@ -109,10 +110,10 @@
             Id = 'V-278037'
             Family = 'Account'
             Level = 'CAT II'
-            Title = 'Maximum password age: 1 to 60'
+            Title = 'Maximum password age: 1 to 180'
             Checks = @()
             Expect = @(
-                @{ Source = 'SecPol'; Name = 'MaximumPasswordAge'; Op = 'between'; Min = 1; Max = 60 }
+                @{ Source = 'SecPol'; Name = 'MaximumPasswordAge'; Op = 'between'; Min = 1; Max = 180 }
             )
         }
         @{
@@ -720,7 +721,7 @@
         @{
             Id = 'V-278009'
             Family = 'Other'
-            Level = 'CAT II'
+            Level = 'CAT I'
             Title = 'This requirement addresses protection of user-generated data as well as operating system-specific configuration data.'
             Checks = @()
             Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
@@ -988,31 +989,7 @@
             Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
         }
         @{
-            Id = 'V-279916'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
-            Id = 'V-279917'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
             Id = 'V-279918'
-            Family = 'Other'
-            Level = 'CAT II'
-            Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
-            Checks = @()
-            Note = 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'
-        }
-        @{
-            Id = 'V-279919'
             Family = 'Other'
             Level = 'CAT II'
             Title = 'Maintaining an audit trail of system activity logs can help identify configuration errors, troubleshoot service disru...'
@@ -1270,6 +1247,7 @@
                     Name = '\\*\NETLOGON'
                     Op = 'eq'
                     Value = 'RequireMutualAuthentication=1, RequireIntegrity=1'
+                    DomainOnly = $true
                 }
             )
         }
@@ -1286,6 +1264,7 @@
                     Name = '\\*\SYSVOL'
                     Op = 'eq'
                     Value = 'RequireMutualAuthentication=1, RequireIntegrity=1'
+                    DomainOnly = $true
                 }
             )
         }
@@ -1322,7 +1301,14 @@
             Title = 'EnableVirtualizationBasedSecurity (DeviceGuard) = 1'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'; Name = 'EnableVirtualizationBasedSecurity'; Op = 'eq'; Value = 1 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeviceGuard'
+                    Name = 'EnableVirtualizationBasedSecurity'
+                    Op = 'eq'
+                    Value = 1
+                    DomainOnly = $true
+                }
             )
         }
         @{
@@ -1338,6 +1324,7 @@
                     Name = 'RequirePlatformSecurityFeatures'
                     Op = 'in'
                     Values = @(1, 3)
+                    DomainOnly = $true
                 }
             )
         }
@@ -1510,11 +1497,12 @@
             Id = 'V-278106'
             Family = 'Config'
             Level = 'CAT II'
-            Title = 'MaxSize (Security) >= 196608'
+            Title = 'MaxSize (Security) >= 5120000'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\Security'; Name = 'MaxSize'; Op = 'ge'; Value = 196608 }
+                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\Security'; Name = 'MaxSize'; Op = 'ge'; Value = 5120000 }
             )
+            Note = 'DISA''s value is an example: the Security log must hold at least one week of records in your environment.'
         }
         @{
             Id = 'V-278107'
@@ -1823,10 +1811,10 @@
             Id = 'V-278163'
             Family = 'Config'
             Level = 'CAT II'
-            Title = 'LDAPServerIntegrity (Parameters) = 2'
+            Title = 'Domain controller: LDAP server signing enforced (LDAPServerEnforceIntegrity = 1)'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters'; Name = 'LDAPServerIntegrity'; Op = 'eq'; Value = 2 }
+                @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\NTDS\Parameters'; Name = 'LDAPServerEnforceIntegrity'; Op = 'eq'; Value = 1 }
             )
         }
         @{
@@ -1837,16 +1825,6 @@
             Checks = @()
             Expect = @(
                 @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters'; Name = 'RefusePasswordChange'; Op = 'eq'; Value = 0 }
-            )
-        }
-        @{
-            Id = 'V-278172'
-            Family = 'Config'
-            Level = 'CAT II'
-            Title = 'StrongCertificateBindingEnforcement (Kdc) in 1/2'
-            Checks = @()
-            Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\Kdc'; Name = 'StrongCertificateBindingEnforcement'; Op = 'in'; Values = @(1, 2) }
             )
         }
         @{
@@ -1963,22 +1941,6 @@
                 @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name = 'LegalNoticeText'; Op = 'notempty' }
             )
             Note = 'The STIG requires the DoD notice and consent text; this check confirms one is set.'
-        }
-        @{
-            Id = 'V-278208'
-            Family = 'Config'
-            Level = 'CAT III'
-            Title = 'LegalNoticeCaption (System) = See message title options below'
-            Checks = @()
-            Expect = @(
-                @{
-                    Source = 'Registry'
-                    Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
-                    Name = 'LegalNoticeCaption'
-                    Op = 'eq'
-                    Value = 'See message title options below'
-                }
-            )
         }
         @{
             Id = 'V-278209'
@@ -2831,6 +2793,102 @@
             Expect = @(
                 @{ Source = 'Feature'; Name = 'PowerShell-v2'; State = 'Disabled' }
             )
+        }
+        @{
+            Id = 'V-285313'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 networked systems must have and implement OpenSSH to protect the confidentiality and integrity of...'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285314'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 OpenSSH must display the Standard Mandatory DoW Notice and Consent Banner before granting remote ...'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285315'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 OpenSSH must accept public key authentication.'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285316'
+            Family = 'Other'
+            Level = 'CAT I'
+            Title = 'Windows Server 2025 OpenSSH must not allow blank passwords.'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285317'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 OpenSSH must force a frequent session key renegotiation for SSH connections to the server.'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285318'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 OpenSSH must be configured so that all network connections associated with SSH traffic terminate ...'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285319'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 OpenSSH must be configured so that all network connections associated with SSH traffic are termin...'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285320'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'The Windows Server 2025 OpenSSH configuration file must conform to minimum requirements.'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285321'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 OpenSSH private host key files must conform to minimum requirements.'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285322'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 OpenSSH public host key files must conform to minimum requirements.'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-285323'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 OpenSSH must not allow GSSAPI authentication.'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
+        }
+        @{
+            Id = 'V-289259'
+            Family = 'Other'
+            Level = 'CAT II'
+            Title = 'Windows Server 2025 must be maintained at a supported servicing level.'
+            Checks = @()
+            Note = 'New in Microsoft Windows Server 2025 STIG V1R4 and not automated yet; check it with STIG Viewer or another SCAP tool.'
         }
     )
 }

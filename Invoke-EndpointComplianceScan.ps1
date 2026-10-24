@@ -134,6 +134,9 @@
     0.6.0  2026-10-24  Catalog generator tools/Update-FrameworkCatalog.ps1, with
                        pinned sources and failover. The Windows 11 STIG catalog
                        follows DISA's V2R11.
+    0.7.0  2026-10-24  Server 2022 and 2025 STIG catalogs follow DISA's V2R11
+                       and V1R4. DomainOnly expectations are NotApplicable off
+                       a domain.
 #>
 
 [CmdletBinding()]
@@ -152,7 +155,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.6.0'
+$ComplianceScanVersion = '0.7.0'
 $SnapshotSchemaVersion = 3
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
@@ -1168,6 +1171,11 @@ function Test-UserRight {
 function Test-Expectation {
     # Judges one catalog expectation against the snapshot. Returns a result.
     param($Snapshot, $Expect)
+    if ($Expect.Contains('DomainOnly') -and $Expect.DomainOnly) {
+        $inDomain = Get-Prop (Get-Prop $Snapshot 'Meta') 'PartOfDomain'
+        if ($null -eq $inDomain) { throw 'Snapshot has no Meta.PartOfDomain.' }
+        if (-not $inDomain) { return New-CheckResult NotApplicable 'Applies only to domain-joined systems; this one is not joined to a domain.' }
+    }
     switch ("$($Expect.Source)") {
         'Registry' {
             $f = Get-RegFact $Snapshot "$($Expect.Path)\$($Expect.Name)"

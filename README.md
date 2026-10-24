@@ -10,12 +10,12 @@ evidence for each requirement.
 | [NIST SP 800-171 Rev 3](https://csrc.nist.gov/pubs/sp/800/171/r3/final) | `NIST-800-171r3` | Rev3 | 97 | 24 |
 | [NIST SP 800-53 Rev 5](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final), Low and Moderate baselines | `NIST-800-53r5` | Low, Moderate | 287 | 32 |
 | [DISA Windows 11 STIG](https://public.cyber.mil/stigs/) V2R11 | `DISA-STIG-Win11` | CAT I, CAT II, CAT III | 276 | 220 |
-| DISA Windows Server 2019 STIG V3R8, member server | `DISA-STIG-WS2019-MS` | CAT I, CAT II, CAT III | 247 | 188 |
-| DISA Windows Server 2019 STIG V3R8, domain controller | `DISA-STIG-WS2019-DC` | CAT I, CAT II, CAT III | 277 | 195 |
-| DISA Windows Server 2022 STIG V2R8, member server | `DISA-STIG-WS2022-MS` | CAT I, CAT II, CAT III | 246 | 188 |
-| DISA Windows Server 2022 STIG V2R8, domain controller | `DISA-STIG-WS2022-DC` | CAT I, CAT II, CAT III | 276 | 195 |
-| DISA Windows Server 2025 STIG V1R1, member server | `DISA-STIG-WS2025-MS` | CAT I, CAT II, CAT III | 250 | 182 |
-| DISA Windows Server 2025 STIG V1R1, domain controller | `DISA-STIG-WS2025-DC` | CAT I, CAT II, CAT III | 281 | 192 |
+| DISA Windows Server 2019 STIG V3R8 (sunset by DISA), member server | `DISA-STIG-WS2019-MS` | CAT I, CAT II, CAT III | 247 | 188 |
+| DISA Windows Server 2019 STIG V3R8 (sunset by DISA), domain controller | `DISA-STIG-WS2019-DC` | CAT I, CAT II, CAT III | 277 | 195 |
+| DISA Windows Server 2022 STIG V2R11, member server | `DISA-STIG-WS2022-MS` | CAT I, CAT II, CAT III | 242 | 187 |
+| DISA Windows Server 2022 STIG V2R11, domain controller | `DISA-STIG-WS2022-DC` | CAT I, CAT II, CAT III | 271 | 193 |
+| DISA Windows Server 2025 STIG V1R4, member server | `DISA-STIG-WS2025-MS` | CAT I, CAT II, CAT III | 258 | 181 |
+| DISA Windows Server 2025 STIG V1R4, domain controller | `DISA-STIG-WS2025-DC` | CAT I, CAT II, CAT III | 288 | 190 |
 | [CIS Controls v8.1](https://www.cisecurity.org/controls/v8-1), endpoint safeguards | `CIS-v8.1` | IG1, IG2 | 18 (partial) | 18 |
 | [NIST Cybersecurity Framework 2.0](https://www.nist.gov/cyberframework) | `NIST-CSF-2.0` | CSF | 106 | 11 |
 | [PCI DSS v4.0.1](https://www.pcisecuritystandards.org/document_library/), endpoint requirements | `PCI-DSS-4.0.1` | PCI | 22 (partial) | 22 |
@@ -86,7 +86,7 @@ are read, and the report files.
 .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-Win11 -Level 'CAT I' -SnapshotPath .\pc01.snapshot.json
 
 # Windows Server 2022 member server STIG, with STIG Viewer checklists, into a shared folder
-.\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R8_STIG.zip -OutputPath \\fileserver\scans
+.\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R11_STIG.zip -OutputPath \\fileserver\scans
 
 # Evaluate a saved snapshot against another framework, on any OS
 pwsh -File ./Invoke-EndpointComplianceScan.ps1 -Framework NIST-800-53r5 -Level Low -FromSnapshot ./pc01.snapshot.json
@@ -142,7 +142,7 @@ STIG itself. Download the STIG zip from [cyber.mil](https://public.cyber.mil/sti
 and pass it, or the XCCDF file inside it, with `-StigPath`:
 
 ```powershell
-.\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R8_STIG.zip
+.\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R11_STIG.zip
 ```
 
 Open the `.cklb` in STIG Viewer 3, which doesn't open `.ckl` files. The `.ckl`
@@ -280,6 +280,7 @@ record it as an override or as reviewed in `tools/mappings/disa-stig.psd1`.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.7.0 | 2026-10-24 | The Windows Server 2022 and 2025 STIG catalogs follow DISA's current releases, V2R11 and V1R4, and each rule DISA changed was reviewed. Maximum password age is 180 days, the Security log example size is DISA's 5120000 KB, and the 2025 domain controller checks LDAP server signing (`LDAPServerEnforceIntegrity`). Hardened UNC paths, Credential Guard and virtualization-based security are NotApplicable on a system that isn't joined to a domain, through a new `DomainOnly` expectation key. The 12 rules new in 2025 V1R4 (11 for OpenSSH, one for the servicing level) are Manual, and retired rules are dropped. The role split follows DISA's STIG IDs. Registry values DISA allows to be absent now pass when absent on Server 2019 and 2022, which fixes false failures. Server 2019 stays on V3R8, because DISA has sunset that STIG. |
 | 0.6.0 | 2026-10-24 | Catalog generator `tools/Update-FrameworkCatalog.ps1`, in PowerShell, with the check mappings as data in `tools/mappings/`. Sources are pinned by SHA-256 and fetched with failover across mirrors and the PowerShell Gallery, or read offline with `-SourcePath`. STIG catalogs can follow a DISA release newer than PowerStig's. The Windows 11 STIG catalog now follows DISA's V2R11: 276 rules, 2 new rules Manual, 8 retired rules dropped, and the maximum password age raised from 60 to 180 days. |
 | 0.5.0 | 2026-10-24 | STIG Viewer 3 checklist (`.cklb`), written beside the `.ckl` when `-StigPath` names the STIG, because STIG Viewer 3 doesn't open `.ckl` files. It follows the layout STIG Viewer 3.8.1 saves. |
 | 0.4.1 | 2026-10-24 | Fix: the STIG Viewer checklist failed with "hexadecimal value 0x00, is an invalid character" when evidence held a NUL, as some registry values do. Characters XML can't hold are now dropped from the `.ckl`, and registry strings drop trailing NULs. |

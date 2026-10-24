@@ -25,7 +25,7 @@
         Mirrors = @('https://mirror-one.invalid/{Ref}/{Path}')
         Package = 'https://package.invalid/Sample/1.2'
         Files = @(
-            @{ Name = 'Sample-1.2.xml'; Path = 'Sample-1.2.xml'; Sha256 = '463f5e19158e85344bcd01159420715c4ff8de29cba2012bf4da5452718141a1' }
+            @{ Name = 'Sample-1.2.xml'; Path = 'Sample-1.2.xml'; Sha256 = 'cc2ae0bc979e0507e1127c171c5baf9ad7588600aaa2a67ba4a6588ed7da4b72' }
             @{ Name = 'Sample-1.2.org.default.xml'; Path = 'Sample-1.2.org.default.xml'; Sha256 = '17b44bd2bcfdbf0bd37a87ddb3bbc559939f361d8b02f92f3e8c4f6c6a4b46cb' }
         )
     }

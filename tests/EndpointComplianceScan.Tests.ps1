@@ -242,10 +242,10 @@ Describe 'Framework catalogs' {
         @{ Id = 'DISA-STIG-Win11'; Count = 276 }
         @{ Id = 'DISA-STIG-WS2019-MS'; Count = 247 }
         @{ Id = 'DISA-STIG-WS2019-DC'; Count = 277 }
-        @{ Id = 'DISA-STIG-WS2022-MS'; Count = 246 }
-        @{ Id = 'DISA-STIG-WS2022-DC'; Count = 276 }
-        @{ Id = 'DISA-STIG-WS2025-MS'; Count = 250 }
-        @{ Id = 'DISA-STIG-WS2025-DC'; Count = 281 }
+        @{ Id = 'DISA-STIG-WS2022-MS'; Count = 242 }
+        @{ Id = 'DISA-STIG-WS2022-DC'; Count = 271 }
+        @{ Id = 'DISA-STIG-WS2025-MS'; Count = 258 }
+        @{ Id = 'DISA-STIG-WS2025-DC'; Count = 288 }
     ) {
         @((Get-Framework $Id).Requirements).Count | Should -Be $Count
         (Get-Framework $Id).Complete | Should -BeTrue
@@ -447,6 +447,20 @@ Describe 'Expectations' {
     It 'passes an unset registry value only when AbsentOk says so' {
         $e = @{ Source = 'Registry'; Path = $Sys; Name = 'EnableLUA'; Op = 'in'; Values = @(1); AbsentOk = $true }
         (Test-ExpectOn $e { param($s) Write-RegFact $s "$Sys\EnableLUA" $null }).State | Should -Be 'Pass'
+    }
+
+    It 'judges a DomainOnly expectation on <Case>' -ForEach @(
+        @{ Case = 'a domain member normally'; InDomain = $true; Value = 0; Want = 'Fail' }
+        @{ Case = 'a standalone system as not applicable'; InDomain = $false; Value = 0; Want = 'NotApplicable' }
+    ) {
+        $e = @{ Source = 'Registry'; Path = $Sys; Name = 'EnableLUA'; Op = 'eq'; Value = 1; DomainOnly = $true }
+        $r = Test-ExpectOn $e { param($s) Write-RegFact $s "$Sys\EnableLUA" $Value; $s.Meta.PartOfDomain = $InDomain }
+        $r.State | Should -Be $Want
+    }
+
+    It 'errors a DomainOnly expectation when the snapshot has no domain membership' {
+        $e = @{ Source = 'Registry'; Path = $Sys; Name = 'EnableLUA'; Op = 'eq'; Value = 1; DomainOnly = $true }
+        (Test-ExpectOn $e { param($s) $s.Meta.PSObject.Properties.Remove('PartOfDomain') }).State | Should -Be 'Error'
     }
 
     It 'errors a registry value missing from the snapshot' {
