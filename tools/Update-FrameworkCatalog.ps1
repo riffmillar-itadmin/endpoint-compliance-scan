@@ -887,6 +887,52 @@ function Get-StigCatalog {
     [pscustomobject]@{ Id = $Entry.Id; File = $Entry.File; Text = (ConvertTo-CatalogText $header $meta $reqs); Requirements = $reqs.Count; Note = "$auto automated; $note"; Reworded = @($reworded) }
 }
 
+function Get-DisaStigCatalog {
+    # A STIG catalog from DISA's XCCDF alone, for a STIG PowerStig doesn't process:
+    # DISA's rules, titles and severities, with the automation the mappings give
+    # (Automated). The automation was checked against one release (Release), so
+    # another release stops the build until a person checks it again.
+    param($Entry, $Map, $Benchmarks)
+    $bench = $Benchmarks[$Entry.DisaBenchmark]
+    if (-not $bench) { throw "$($Entry.Id) needs the DISA STIG $($Entry.DisaBenchmark); pin its zip in tools/mappings/sources.psd1 or pass -StigPath." }
+    if (-not ($bench.ReleaseInfo -match 'Release: (\d+) Benchmark Date: (\d+ \w+ \d+)')) { throw "$($bench.FileName): unexpected release info '$($bench.ReleaseInfo)'." }
+    $release = $Matches[1]
+    $date = $Matches[2]
+    $have = "V$($bench.Version)R$release"
+    if ($have -ne $Entry.Release) {
+        throw "$($Entry.Id): the automation in tools/mappings/disa-stig.psd1 was checked against $($Entry.Release), not $have; check each automated rule against $have and update Release."
+    }
+    $automated = if ($Entry.Contains('Automated')) { $Entry.Automated } else { @{} }
+    $ids = @($bench.Rules | ForEach-Object { $_.GroupId })
+    $unknown = @($automated.Keys | Where-Object { $ids -notcontains $_ })
+    if ($unknown.Count -gt 0) { throw "tools/mappings automates rules $($Entry.DisaBenchmark) $have doesn't have: $($unknown -join ', ')." }
+    $reqs = [Collections.Generic.List[object]]::new()
+    foreach ($b in $bench.Rules) {
+        $title = Get-Sentence $b.RuleTitle
+        if ($automated.Contains($b.GroupId)) {
+            $a = $automated[$b.GroupId]
+            if ($a.Contains('Title')) { $title = $a.Title }
+            $note = if ($a.Contains('Note')) { $a.Note } else { $null }
+            $reqs.Add((New-Requirement $b.GroupId $a.Family $Severity[$b.Severity] $title @() @($a.Expect) $note))
+        } else {
+            $reqs.Add((New-Requirement $b.GroupId 'Other' $Severity[$b.Severity] $title @() @() 'Not automated by this scanner; check it with STIG Viewer or another SCAP tool.'))
+        }
+    }
+    $auto = @($reqs | Where-Object { $_.Contains('Expect') }).Count
+    $extra = if ($Entry.Contains('Role')) { " ($($Entry.Role))" } else { '' }
+    $head = "DISA $($bench.Title.Replace('Security Technical Implementation Guide', 'STIG'))$extra, Version $($bench.Version) Release $release " +
+        "(benchmark date $date): all $($reqs.Count) rules, by Vuln ID. Rules and severities from DISA's STIG ($([IO.Path]::GetFileName($bench.FileName))); " +
+        'automated checks written for this project. STIG content is published by DISA at https://public.cyber.mil/stigs/. ' +
+        'Titles here are short summaries; STIG Viewer has the full rule text. Levels are the severity categories.'
+    $header = (Format-HeaderComment $head) + "`n# Field meanings are in frameworks/README.md."
+    $meta = [ordered]@{
+        Id = $Entry.Id; Name = "DISA $($Entry.Product) STIG $have"; Source = 'https://public.cyber.mil/stigs/'; StigId = $bench.Id
+        Levels = @('CAT I', 'CAT II', 'CAT III'); Complete = $true; AppliesTo = $(if ($Entry.Contains('AppliesTo')) { $Entry.AppliesTo }); Thresholds = $Map.Thresholds
+    }
+    if (-not $Entry.Contains('AppliesTo')) { $meta.Remove('AppliesTo') }
+    [pscustomobject]@{ Id = $Entry.Id; File = $Entry.File; Text = (ConvertTo-CatalogText $header $meta $reqs); Requirements = $reqs.Count; Note = "$auto automated; DISA $have"; Reworded = @() }
+}
+
 #endregion
 
 # Dot-sourced (by the tests), only the functions are wanted.
@@ -925,7 +971,7 @@ foreach ($d in @($Sources.Disa)) {
 
 foreach ($id in $Framework) {
     $b = $builders[$id]
-    $result = if ($b -is [scriptblock]) { & $b } else { Get-StigCatalog $b $stigMap $benchmarks }
+    $result = if ($b -is [scriptblock]) { & $b } elseif ($b.Contains('PowerStig')) { Get-StigCatalog $b $stigMap $benchmarks } else { Get-DisaStigCatalog $b $stigMap $benchmarks }
     $path = Join-Path $OutputPath "$($result.File).psd1"
     $old = if (Test-Path -LiteralPath $path) { [IO.File]::ReadAllText($path) } else { $null }
     $changed = $old -ne $result.Text

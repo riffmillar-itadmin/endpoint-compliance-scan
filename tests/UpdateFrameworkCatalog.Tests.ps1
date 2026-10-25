@@ -618,6 +618,61 @@ Describe 'STIG catalog following a DISA release' {
     }
 }
 
+Describe 'STIG catalog from DISA alone' {
+    BeforeAll {
+        # A catalog PowerStig doesn't process: DISA's rules, with the automation
+        # the mappings give.
+        function Get-AloneMapping {
+            param([string]$Release = 'V1R3', [string]$Automated = "'V-900001' = @{ Family = 'Directory'; Title = 'No unconstrained delegation'; Expect = @(@{ Source = 'Directory'; Name = 'UnconstrainedDelegation' }) }")
+            Copy-FixtureMapping 'disa-stig.psd1' @{
+                "    Catalogs = @(`n" = "    Catalogs = @(`n        @{`n            Id = 'DISA-STIG-Alone'`n            File = 'disa-stig-alone'`n            DisaBenchmark = 'Sample_Westmark_STIG'`n            Release = '$Release'`n            Product = 'Westmark Sample'`n            AppliesTo = @{ ProductTypes = @(2) }`n            Automated = @{ $Automated }`n        }`n"
+            }
+        }
+        $script:Run = Invoke-Generator -Framework 'DISA-STIG-Alone' -StigPath $DisaFixture -Mappings (Get-AloneMapping)
+        $script:Alone = Read-Catalog $Run.Folder 'disa-stig-alone'
+    }
+
+    It "takes DISA's release, every rule and the severities" {
+        $Alone.Name | Should -Be 'DISA Westmark Sample STIG V1R3'
+        $Alone.StigId | Should -Be 'Sample_Westmark_STIG'
+        $Alone.AppliesTo.ProductTypes | Should -Be @(2)
+        @($Alone.Requirements).Count | Should -Be 5
+        (Get-Requirement $Alone 'V-900002').Level | Should -Be 'CAT I'
+        (Get-Requirement $Alone 'V-900003').Level | Should -Be 'CAT III'
+        $Run.Results[0].Note | Should -Be '1 automated; DISA V1R3'
+    }
+
+    It 'automates the rules the mappings name, with their title and family' {
+        $r = Get-Requirement $Alone 'V-900001'
+        $r.Title | Should -Be 'No unconstrained delegation'
+        $r.Family | Should -Be 'Directory'
+        $r.Expect[0].Source | Should -Be 'Directory'
+        $r.Expect[0].Name | Should -Be 'UnconstrainedDelegation'
+        $r.Contains('Note') | Should -BeFalse
+    }
+
+    It 'leaves every other rule Manual, titled from DISA' {
+        $r = Get-Requirement $Alone 'V-900004'
+        $r.Title | Should -Be 'A rule the catalog does not have.'
+        $r.Contains('Expect') | Should -BeFalse
+        $r.Note | Should -BeLike 'Not automated by this scanner*'
+        @($Alone.Requirements | Where-Object { $_.Contains('Expect') }).Count | Should -Be 1
+    }
+
+    It 'stops when the automation was checked against another release' {
+        { Invoke-Generator -Framework 'DISA-STIG-Alone' -StigPath $DisaFixture -Mappings (Get-AloneMapping -Release 'V1R2') } | Should -Throw '*checked against V1R2, not V1R3*'
+    }
+
+    It 'stops on automation for a rule the release does not have' {
+        $maps = Get-AloneMapping -Automated "'V-999999' = @{ Family = 'Directory'; Expect = @(@{ Source = 'Directory'; Name = 'UnconstrainedDelegation' }) }"
+        { Invoke-Generator -Framework 'DISA-STIG-Alone' -StigPath $DisaFixture -Mappings $maps } | Should -Throw '*V-999999*'
+    }
+
+    It 'stops without the DISA STIG, rather than writing an empty catalog' {
+        { Invoke-Generator -Framework 'DISA-STIG-Alone' -Mappings (Get-AloneMapping) } | Should -Throw '*needs the DISA STIG Sample_Westmark_STIG*'
+    }
+}
+
 Describe 'Generated output' {
     BeforeAll {
         $script:Run = Invoke-Generator
@@ -700,11 +755,24 @@ Describe "The project's mappings" {
         @($named | Where-Object { $CheckNames -notcontains $_ } | Select-Object -Unique) | Should -BeNullOrEmpty
     }
 
-    It 'pin both PowerStig files of every STIG catalog' {
+    It 'pin both PowerStig files of every STIG catalog built from PowerStig' {
         $pinned = @($SourceData.PowerStig.Files | ForEach-Object { $_.Name })
-        foreach ($cat in $StigData.Catalogs) {
+        $built = 0
+        foreach ($cat in @($StigData.Catalogs | Where-Object { $_.Contains('PowerStig') })) {
             $pinned | Should -Contain "$($cat.PowerStig).xml"
             $pinned | Should -Contain "$($cat.PowerStig).org.default.xml"
+            $built++
+        }
+        $built | Should -BeGreaterThan 0
+    }
+
+    It 'pin the DISA zip of every catalog built from DISA alone, and name the release it was checked against' {
+        $benchmarks = @($SourceData.Disa | ForEach-Object { $_.Benchmark })
+        $alone = @($StigData.Catalogs | Where-Object { -not $_.Contains('PowerStig') })
+        $alone.Count | Should -BeGreaterThan 0
+        foreach ($cat in $alone) {
+            $benchmarks | Should -Contain $cat.DisaBenchmark -Because $cat.Id
+            $cat.Release | Should -Match '^V\d+R\d+$' -Because $cat.Id
         }
     }
 

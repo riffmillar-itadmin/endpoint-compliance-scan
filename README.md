@@ -17,6 +17,8 @@ evidence for each requirement.
 | DISA Windows Server 2025 STIG V1R4, member server | `DISA-STIG-WS2025-MS` | CAT I, CAT II, CAT III | 258 | 181 |
 | DISA Windows Server 2025 STIG V1R4, domain controller | `DISA-STIG-WS2025-DC` | CAT I, CAT II, CAT III | 288 | 190 |
 | DISA Windows Defender Firewall STIG V2R2, any Windows | `DISA-STIG-Firewall` | CAT I, CAT II, CAT III | 21 | 20 |
+| DISA Active Directory Domain STIG V3R8, on a domain controller | `DISA-STIG-AD-Domain` | CAT I, CAT II, CAT III | 36 | 16 |
+| DISA Active Directory Forest STIG V3R2, on a domain controller | `DISA-STIG-AD-Forest` | CAT I, CAT II, CAT III | 7 | 4 |
 | [CIS Controls v8.1](https://www.cisecurity.org/controls/v8-1), endpoint safeguards | `CIS-v8.1` | IG1, IG2 | 18 (partial) | 18 |
 | [NIST Cybersecurity Framework 2.0](https://www.nist.gov/cyberframework) | `NIST-CSF-2.0` | CSF | 106 | 11 |
 | [PCI DSS v4.0.1](https://www.pcisecuritystandards.org/document_library/), endpoint requirements | `PCI-DSS-4.0.1` | PCI | 22 (partial) | 22 |
@@ -47,6 +49,7 @@ separate one for domain controllers. Pick the one that matches the machine:
 | Windows Server 2019, 2022 or 2025, member or standalone server | `DISA-STIG-WS2019-MS`, `DISA-STIG-WS2022-MS`, `DISA-STIG-WS2025-MS` |
 | Windows Server 2019, 2022 or 2025, domain controller | `DISA-STIG-WS2019-DC`, `DISA-STIG-WS2022-DC`, `DISA-STIG-WS2025-DC` |
 | Any of these, for its firewall (in addition to the release's STIG) | `DISA-STIG-Firewall` |
+| A domain controller, for its domain and forest (in addition to the release's STIG) | `DISA-STIG-AD-Domain`, `DISA-STIG-AD-Forest` |
 
 `winver` or `(Get-CimInstance Win32_OperatingSystem).Caption` shows the release.
 Each operating system STIG catalog names the edition and build it was written
@@ -64,11 +67,23 @@ the organization. Those are Manual, and STIG Viewer has the full check text.
 On a domain controller the local-account checks are NotApplicable, since a
 domain controller has none; its accounts are reviewed in Active Directory.
 
+The Active Directory STIGs are read from the directory, so scan a domain
+controller of the domain (and, for the forest STIG, one in the forest root
+domain). The scan reads group membership, delegation, trusts, sites, LAPS
+coverage, certificate templates and the DSRM password change event through ADSI,
+and falls back to the ActiveDirectory module when ADSI fails. It reads only from
+the domain controller it runs on, and changes nothing. On
+any other machine those rules are NotApplicable. A rule that names a person's
+judgement, such as whether each administrator account is documented, is Manual
+with the accounts it found listed in the evidence.
+
 ## What it changes
 
 Nothing. It reads the registry, security policy, user rights, audit policy,
 services, Windows features, firewall, Defender, BitLocker, local accounts and
-installed updates. It makes no network calls. Its only side effects are
+installed updates, and on a domain controller Active Directory, which it reads
+from that domain controller itself (localhost). It makes no other network calls.
+Its only side effects are
 temporary files (the `secedit` and `auditpol` exports), deleted as soon as they
 are read, and the report files.
 
@@ -206,8 +221,8 @@ A requirement gets its evidence from two places.
 
 **Setting expectations** in the catalog, for rules that are a single setting:
 a registry value, a security policy value, an audit subcategory, a user right, a
-service's start type or a Windows feature. Most of the STIGs' automated rules are
-these.
+service's start type, a Windows feature, or on a domain controller a named
+directory test. Most of the STIGs' automated rules are these.
 
 User rights are matched by SID, so the result is the same in any Windows display
 language. Domain Admins and Enterprise Admins are required only on a machine in
@@ -282,10 +297,16 @@ keeps one), or a check DISA waives when another rule is met. A correction in the
 mappings settles each one.
 `-StigPath` tries a newer DISA release before it is pinned.
 
+PowerStig doesn't process the Active Directory STIGs, so their catalogs are
+built from DISA's zip alone. Their automation is written in the mappings, along
+with the release it was checked against. A newer DISA release stops the build
+until a person checks each automated rule against it.
+
 ## Changelog
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.9.0 | 2026-10-25 | DISA Active Directory Domain STIG V3R8 (`DISA-STIG-AD-Domain`, 36 rules, 16 automated) and Forest STIG V3R2 (`DISA-STIG-AD-Forest`, 7 rules, 4 automated), for domain controllers. A new directory collector reads Active Directory through ADSI, falling back to the ActiveDirectory module, and is NotApplicable on any machine that isn't a domain controller. It checks administrator group separation, accounts that can be delegated, Protected Users, unconstrained delegation, trusts (SID filtering and selective authentication), Pre-Windows 2000 Compatible Access, Schema Admins, LAPS coverage, smart card hash rolling, the DSRM password age, the functional level, inter-site replication, anonymous forest access, the forest root time source and certificate templates. These use a new `Directory` expectation source. Snapshot schema 4. The catalog generator builds a STIG catalog from DISA's zip alone, with automation from the mappings pinned to the release it was checked against. |
 | 0.8.1 | 2026-10-25 | STIG fixes found by scanning a lab domain controller. The SMB1 registry settings are NotApplicable when the SMB1 feature is removed, and SMB1 removal is NotApplicable when both settings are made, as DISA's checks say, on Windows 11 and Server 2019, 2022 and 2025. This uses a new `NotApplicableIf` expectation key. Diagnostic data (`AllowTelemetry`) accepts DISA's values: 0 or 1 on Windows 11 and Server 2025 (Server 2025 had expected an empty value), and 1 or 3 on Server 2022. Delivery Optimization accepts 0, 1, 2, 99 or 100 on Windows 11 and Server 2025. The Server 2025 administrator UAC prompt accepts 1 or 2. On Windows 11, Windows Analytics diagnostic data is NotApplicable when diagnostic data is Security or Basic. Its Settings-based Delivery Optimization value applies only off a domain, through a new `StandaloneOnly` key. The catalog generator applies corrections whatever release a catalog follows. It stops on a value nobody has reviewed. |
 | 0.8.0 | 2026-10-24 | DISA Windows Defender Firewall STIG V2R2 as `DISA-STIG-Firewall`, for any Windows: 21 rules, 20 automated. Registry expectations take an optional `FallbackPath`: the Group Policy value is read first and the local firewall setting only when no policy value exists, as the STIG's checks say. The Domain profile and policy-merge rules are NotApplicable on a system that isn't joined to a domain. The catalog generator joins a STIG's policy and local parts into one rule (`PolicyFallback`), and reads organization-defined values whose PowerStig comment has extra spacing, which it used to miss. |
 | 0.7.0 | 2026-10-24 | The Windows Server 2022 and 2025 STIG catalogs follow DISA's current releases, V2R11 and V1R4, and each rule DISA changed was reviewed. Maximum password age is 180 days, the Security log example size is DISA's 5120000 KB, and the 2025 domain controller checks LDAP server signing (`LDAPServerEnforceIntegrity`). Hardened UNC paths, Credential Guard and virtualization-based security are NotApplicable on a system that isn't joined to a domain, through a new `DomainOnly` expectation key. The 12 rules new in 2025 V1R4 (11 for OpenSSH, one for the servicing level) are Manual, and retired rules are dropped. The role split follows DISA's STIG IDs. Registry values DISA allows to be absent now pass when absent on Server 2019 and 2022, which fixes false failures. Server 2019 stays on V3R8, because DISA has sunset that STIG. |

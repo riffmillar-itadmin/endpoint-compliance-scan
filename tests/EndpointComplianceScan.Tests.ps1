@@ -179,6 +179,7 @@ Describe 'Every framework catalog: <Id>' -ForEach $script:FrameworkCases {
                     }
                     'Service' { $e.StartType | Should -BeIn 'Disabled', 'Manual', 'Automatic' -Because $because }
                     'Feature' { $e.State | Should -Be 'Disabled' -Because $because }
+                    'Directory' { @($DirectoryTest.Keys) | Should -Contain $e.Name -Because $because }
                     'UserRight' {
                         $e.Name | Should -Match '^Se\w+(Privilege|Right)$' -Because $because
                         $e.Op | Should -BeIn 'only', 'includes' -Because $because
@@ -248,6 +249,8 @@ Describe 'Framework catalogs' {
         @{ Id = 'DISA-STIG-WS2025-MS'; Count = 258 }
         @{ Id = 'DISA-STIG-WS2025-DC'; Count = 288 }
         @{ Id = 'DISA-STIG-Firewall'; Count = 21 }
+        @{ Id = 'DISA-STIG-AD-Domain'; Count = 36 }
+        @{ Id = 'DISA-STIG-AD-Forest'; Count = 7 }
     ) {
         @((Get-Framework $Id).Requirements).Count | Should -Be $Count
         (Get-Framework $Id).Complete | Should -BeTrue
@@ -699,6 +702,175 @@ Describe 'Server 2025 domain controller STIG (regression: false failures in a la
     ) {
         $key = @{ AllowTelemetry = $Telemetry; DODownloadMode = $DoMode; ConsentPromptBehaviorAdmin = $Consent }[$Name]
         Get-DcState { param($s) Write-RegFact $s $key $Value } $Id | Should -Be $Want
+    }
+}
+
+Describe 'Active Directory STIGs' {
+    BeforeAll {
+        $script:AdDomain = Get-Framework 'DISA-STIG-AD-Domain'
+        $script:AdForest = Get-Framework 'DISA-STIG-AD-Forest'
+        $script:DomainSid = 'S-1-5-21-1000000011-1000000012-1000000013'
+
+        function Get-TestUser {
+            param([string]$Name, [int]$Rid, [bool]$NotDelegated = $false, [bool]$Protected = $false, [bool]$Enabled = $true)
+            [pscustomobject]@{ Name = $Name; Sid = "$DomainSid-$Rid"; Enabled = $Enabled; NotDelegated = $NotDelegated; Protected = $Protected }
+        }
+
+        function Add-DirectoryMember {
+            # Adds a user (or a principal with only Name and Sid) to groups, as the collector records it.
+            param($Snapshot, $User, [string[]]$Group)
+            foreach ($g in $Group) {
+                $entry = $Snapshot.Directory.Groups.$g
+                $entry.Members = @($entry.Members) + [pscustomobject]@{ Name = $User.Name; Sid = $User.Sid }
+                if ($User.PSObject.Properties['Enabled']) { $entry.Users = @($entry.Users) + $User }
+            }
+        }
+
+        function Get-AdState {
+            # The states of the named requirements, from both AD catalogs, after $Mutate.
+            param([scriptblock]$Mutate, [string[]]$Id)
+            $s = Get-CompliantSnapshot $AdDomain
+            & $Mutate $s
+            $all = @{}
+            foreach ($fw in $AdDomain, $AdForest) {
+                foreach ($r in (Invoke-Evaluation $s -Thresholds (Get-Threshold $fw) -Level $null -For $fw).Requirements) { $all[$r.Requirement] = $r }
+            }
+            foreach ($i in $Id) { $all[$i].State }
+        }
+
+        function Get-AdFinding {
+            param([scriptblock]$Mutate, [string]$Id)
+            $s = Get-CompliantSnapshot $AdDomain
+            & $Mutate $s
+            $fw = if ($AdForest.Requirements.Id -contains $Id) { $AdForest } else { $AdDomain }
+            "$(((Invoke-Evaluation $s -Thresholds (Get-Threshold $fw) -Level $null -For $fw).Requirements | Where-Object Requirement -eq $Id).Findings)"
+        }
+    }
+
+    It 'flags every finding planted in a lab domain (regression: lab domain controller)' {
+        $planted = {
+            param($s)
+            $builtIn = Get-TestUser 'Administrator' 500
+            $admin = Get-TestUser 'wm-admin2' 1105
+            Add-DirectoryMember $s $builtIn 'Domain Admins', 'Enterprise Admins', 'Schema Admins', 'Administrators'
+            Add-DirectoryMember $s $admin 'Domain Admins', 'Enterprise Admins', 'Schema Admins'
+            Add-DirectoryMember $s (Get-TestUser 'wm-gpo' 1106) 'Group Policy Creator Owners'
+            Add-DirectoryMember $s ([pscustomobject]@{ Name = 'Everyone'; Sid = 'S-1-1-0' }) 'Pre-Windows 2000 Compatible Access'
+            $s.Directory.UnconstrainedDelegation = @('WM-SRV07')
+        }
+        $ids = 'V-243466', 'V-243467', 'V-243470', 'V-243477', 'V-243478', 'V-243486', 'V-243487', 'V-243502'
+        Get-AdState $planted $ids | Should -Be @('Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Fail', 'Manual', 'Fail')
+        Get-AdFinding $planted 'V-243477' | Should -Match 'Administrator, wm-admin2'
+        Get-AdFinding $planted 'V-243478' | Should -Match 'WM-SRV07'
+        Get-AdFinding $planted 'V-243486' | Should -Match 'Everyone'
+        Get-AdFinding $planted 'V-243502' | Should -Match 'Administrator, wm-admin2'
+    }
+
+    It 'passes the domain and forest STIG rules a compliant domain meets, and leaves the rest to review' {
+        $ids = 'V-243466', 'V-243467', 'V-243470', 'V-243471', 'V-243476', 'V-243477', 'V-243478', 'V-243479', 'V-243480',
+            'V-243484', 'V-243485', 'V-243486', 'V-243487', 'V-243497', 'V-243500', 'V-243502', 'V-243503', 'V-243504', 'V-269098'
+        Get-AdState {} $ids | Should -Be @('Manual', 'Manual', 'Pass', 'Pass', 'Pass', 'Pass', 'Pass', 'Pass', 'Pass',
+            'NotApplicable', 'NotApplicable', 'Pass', 'Pass', 'NotApplicable', 'Pass', 'Pass', 'Pass', 'Manual', 'NotApplicable')
+    }
+
+    It 'judges administrator separation by enabled accounts only' {
+        Get-AdState { param($s) Add-DirectoryMember $s (Get-TestUser 'wm-old' 1110 -Enabled $false) 'Domain Admins', 'Enterprise Admins' } 'V-243466' | Should -Be 'Manual'
+        Get-AdState { param($s) Add-DirectoryMember $s (Get-TestUser 'wm-bk' 1111 $true $true) 'Domain Admins', 'Backup Operators' } 'V-243467' | Should -Be 'Fail'
+        Get-AdState { param($s) foreach ($g in 'Domain Admins', 'Enterprise Admins') { $s.Directory.Groups.$g.Members = @(); $s.Directory.Groups.$g.Users = @() } } 'V-243466', 'V-243467' |
+            Should -Be @('Pass', 'Pass')
+    }
+
+    It 'allows one administrative account outside Protected Users, not two' {
+        Get-AdState { param($s) Add-DirectoryMember $s (Get-TestUser 'Administrator' 500 $true) 'Domain Admins' } 'V-243477' | Should -Be 'Pass'
+        Get-AdState {
+            param($s)
+            Add-DirectoryMember $s (Get-TestUser 'Administrator' 500 $true) 'Domain Admins'
+            Add-DirectoryMember $s (Get-TestUser 'wm-ops' 1112 $true) 'Account Operators'
+        } 'V-243477' | Should -Be 'Fail'
+        Get-AdState { param($s) $s.Directory.DomainMode = 5 } 'V-243477' | Should -Be 'NotApplicable'
+    }
+
+    It 'judges <Case> as <Want>' -ForEach @(
+        @{ Case = 'smart card hash rolling off'; Id = 'V-243476'; Want = 'Fail'; Mutate = { param($s) $s.Directory.ExpirePasswordsOnSmartCardOnlyAccounts = $false } }
+        @{ Case = 'smart card hash rolling below level 2016'; Id = 'V-243476'; Want = 'Manual'; Mutate = { param($s) $s.Directory.DomainMode = 6 } }
+        @{ Case = 'domain functional level 2012 R2'; Id = 'V-243480'; Want = 'Fail'; Mutate = { param($s) $s.Directory.DomainMode = 6 } }
+        @{ Case = 'a DSRM password over a year old'; Id = 'V-243479'; Want = 'Fail'; Mutate = { param($s) $s.Directory.DsrmLastSet = '2024-01-01T00:00:00Z' } }
+        @{ Case = 'no DSRM change event'; Id = 'V-243479'; Want = 'Manual'; Mutate = { param($s) $s.Directory.DsrmLastSet = $null } }
+        @{ Case = 'a computer without a LAPS password'; Id = 'V-243471'; Want = 'Manual'; Mutate = { param($s) $s.Directory.Laps.Missing = @('WM-PC12') } }
+        @{ Case = 'no LAPS schema'; Id = 'V-243471'; Want = 'Manual'; Mutate = { param($s) $s.Directory.Laps.Schema = 'None' } }
+        @{ Case = 'a privileged account that can be delegated'; Id = 'V-243470'; Want = 'Fail'; Mutate = { param($s) Add-DirectoryMember $s (Get-TestUser 'wm-print' 1113 $false $true) 'Print Operators' } }
+        @{ Case = 'Anonymous Logon in Pre-Windows 2000 Compatible Access'; Id = 'V-243486'; Want = 'Fail'; Mutate = { param($s) Add-DirectoryMember $s ([pscustomobject]@{ Name = 'ANONYMOUS LOGON'; Sid = 'S-1-5-7' }) 'Pre-Windows 2000 Compatible Access' } }
+        @{ Case = 'a member of Incoming Forest Trust Builders'; Id = 'V-243487'; Want = 'Manual'; Mutate = { param($s) Add-DirectoryMember $s (Get-TestUser 'wm-trust' 1114) 'Incoming Forest Trust Builders' } }
+        @{ Case = 'one domain controller'; Id = 'V-243500'; Want = 'Manual'; Mutate = { param($s) $s.Directory.DomainControllers = 1 } }
+        @{ Case = 'a site link replicating every two days'; Id = 'V-243497'; Want = 'Fail'; Mutate = { param($s) $s.Directory.Sites = 2; $s.Directory.SiteLinks[0].ReplInterval = 2880 } }
+        @{ Case = 'a site link with a schedule'; Id = 'V-243497'; Want = 'Manual'; Mutate = { param($s) $s.Directory.Sites = 2; $s.Directory.SiteLinks[0].HasSchedule = $true } }
+        @{ Case = 'two sites replicating every three hours'; Id = 'V-243497'; Want = 'Pass'; Mutate = { param($s) $s.Directory.Sites = 2 } }
+        @{ Case = 'Schema Admins in a child domain'; Id = 'V-243502'; Want = 'NotApplicable'; Mutate = { param($s) $s.Directory.IsForestRoot = $false; Add-DirectoryMember $s (Get-TestUser 'wm-schema' 1115) 'Schema Admins' } }
+        @{ Case = 'anonymous forest access in dSHeuristics'; Id = 'V-243503'; Want = 'Fail'; Mutate = { param($s) $s.Directory.DsHeuristics = '0000002' } }
+        @{ Case = 'dSHeuristics with other flags'; Id = 'V-243503'; Want = 'Pass'; Mutate = { param($s) $s.Directory.DsHeuristics = '0000001001' } }
+        @{ Case = 'the forest root PDC emulator on the domain hierarchy'; Id = 'V-243504'; Want = 'Fail'; Mutate = { param($s) $s.Directory.TimeSource.Type = 'NT5DS' } }
+        @{ Case = 'a domain controller that is not the PDC emulator'; Id = 'V-243504'; Want = 'NotApplicable'; Mutate = { param($s) $s.Directory.IsPdcEmulator = $false; $s.Directory.TimeSource.Type = 'NT5DS' } }
+    ) {
+        Get-AdState $Mutate $Id | Should -Be $Want
+    }
+
+    It 'judges trust <Case> as SID filtering <Sid>, selective authentication <Selective>' -ForEach @(
+        @{ Case = 'external, quarantined'; Direction = 3; Attributes = 0x4; Sid = 'Pass'; Selective = 'NotApplicable' }
+        @{ Case = 'external, not quarantined'; Direction = 2; Attributes = 0; Sid = 'Fail'; Selective = 'NotApplicable' }
+        @{ Case = 'external, incoming only'; Direction = 1; Attributes = 0; Sid = 'NotApplicable'; Selective = 'NotApplicable' }
+        @{ Case = 'within the forest'; Direction = 3; Attributes = 0x20; Sid = 'NotApplicable'; Selective = 'NotApplicable' }
+        @{ Case = 'forest, selective'; Direction = 3; Attributes = 0x18; Sid = 'Pass'; Selective = 'Pass' }
+        @{ Case = 'forest, not selective'; Direction = 2; Attributes = 0x8; Sid = 'Pass'; Selective = 'Fail' }
+        @{ Case = 'forest, SID history enabled'; Direction = 3; Attributes = 0x58; Sid = 'Fail'; Selective = 'Pass' }
+    ) {
+        $trust = [pscustomobject]@{ Name = 'partner.example'; Direction = $Direction; Attributes = $Attributes }
+        Get-AdState { param($s) $s.Directory.Trusts = @($trust) } 'V-243484', 'V-243485' | Should -Be @($Sid, $Selective)
+    }
+
+    It 'judges certificate template <Case> as <Want>' -ForEach @(
+        @{ Case = 'smart card logon without approval'; Want = 'Fail'; Template = @{ ManagerApproval = $false; SuppliesSubject = $false; Ekus = @('1.3.6.1.4.1.311.20.2.2') } }
+        @{ Case = 'any purpose without approval'; Want = 'Fail'; Template = @{ ManagerApproval = $false; SuppliesSubject = $false; Ekus = @('2.5.29.37.0') } }
+        @{ Case = 'no EKU without approval'; Want = 'Fail'; Template = @{ ManagerApproval = $false; SuppliesSubject = $false; Ekus = @() } }
+        @{ Case = 'client auth with a supplied subject'; Want = 'Fail'; Template = @{ ManagerApproval = $false; SuppliesSubject = $true; Ekus = @('1.3.6.1.5.5.7.3.2') } }
+        @{ Case = 'client auth with a subject from the directory'; Want = 'Pass'; Template = @{ ManagerApproval = $false; SuppliesSubject = $false; Ekus = @('1.3.6.1.5.5.7.3.2') } }
+        @{ Case = 'server auth with a supplied subject'; Want = 'Pass'; Template = @{ ManagerApproval = $false; SuppliesSubject = $true; Ekus = @('1.3.6.1.5.5.7.3.1') } }
+        @{ Case = 'smart card logon with approval'; Want = 'Pass'; Template = @{ ManagerApproval = $true; SuppliesSubject = $true; Ekus = @('1.3.6.1.4.1.311.20.2.2') } }
+    ) {
+        $t = [pscustomobject]($Template + @{ Name = 'WestmarkUser' })
+        Get-AdState { param($s) $s.Directory.CertificateServices.Present = $true; $s.Directory.CertificateServices.Templates = @($t) } 'V-269098' | Should -Be $Want
+    }
+
+    It 'leaves directory rules not applicable off a domain controller, never passed' {
+        $s = Get-CompliantSnapshot $AdDomain
+        $s.Collection.Directory.Status = 'NotApplicable'
+        $s.Collection.Directory.Reason = 'Active Directory is read on a domain controller.'
+        $s.Directory = $null
+        $e = Invoke-Evaluation $s -Thresholds (Get-Threshold $AdDomain) -Level $null -For $AdDomain
+        $directory = @($e.Requirements | Where-Object { $_.Requirement -ne 'V-269097' -and $AdDomain.Requirements.Where({ $_.Contains('Expect') }).Id -contains $_.Requirement })
+        $directory.Count | Should -Be 15
+        @($directory | Where-Object State -ne 'NotApplicable') | Should -BeNullOrEmpty
+        Get-ScanExitCode $e.Requirements | Should -Be 0
+    }
+
+    It 'errors directory rules when the directory collector failed' {
+        $s = Get-CompliantSnapshot $AdDomain
+        $s.Collection.Directory.Status = 'Error'
+        $s.Collection.Directory.Reason = 'The server is not operational.'
+        $s.Directory = $null
+        $e = Invoke-Evaluation $s -Thresholds (Get-Threshold $AdDomain) -Level $null -For $AdDomain
+        ($e.Requirements | Where-Object Requirement -eq 'V-243478').State | Should -Be 'Error'
+        Get-ScanExitCode $e.Requirements | Should -Be 2
+    }
+
+    It 'errors an expectation that names a directory test the scanner does not have' {
+        (Test-ExpectOn @{ Source = 'Directory'; Name = 'NoSuchTest' }).State | Should -Be 'Error'
+    }
+
+    It 'errors when a group the tests read is missing from the snapshot' {
+        $s = Get-CompliantSnapshot $AdDomain
+        $s.Directory.Groups.PSObject.Properties.Remove('Schema Admins')
+        $e = Invoke-Evaluation $s -Thresholds (Get-Threshold $AdForest) -Level $null -For $AdForest
+        ($e.Requirements | Where-Object Requirement -eq 'V-243502').State | Should -Be 'Error'
     }
 }
 

@@ -7,8 +7,9 @@
 
 .DESCRIPTION
     Read-only. The scan changes no setting, writes nothing to the registry and makes
-    no network call. Its only side effects are temporary files (the secedit and
-    auditpol exports), deleted as soon as they are read, and the report files.
+    no network call; on a domain controller it reads Active Directory from itself
+    (localhost) over LDAP. Its only side effects are temporary files (the secedit
+    and auditpol exports), deleted as soon as they are read, and the report files.
 
     It works in two stages so that every pass/fail rule can be tested anywhere:
         1. Collect: gather raw facts about the machine into a snapshot.
@@ -19,8 +20,8 @@
     Each framework is a catalog in the frameworks folder (frameworks/README.md
     describes the format). A requirement gets its evidence from named checks in
     this script, from setting expectations in the catalog (a registry value, a
-    security policy value, an audit subcategory, a user right, a service or a
-    Windows feature), or from both. Its result is the worst of those results:
+    security policy value, an audit subcategory, a user right, a service, a
+    Windows feature or a directory test), or from both. Its result is the worst of those results:
         Fail           evidence collected and it misses the threshold
         Error          a collector or check threw; the message is in the report
         Skipped        the check applies but could not run (usually: not elevated)
@@ -145,6 +146,9 @@
                        StandaloneOnly expectations, and DISA's full value lists
                        for diagnostic data, Delivery Optimization and the
                        administrator UAC prompt.
+    0.9.0  2026-10-25  DISA Active Directory Domain and Forest STIGs, with a
+                       directory collector on domain controllers (ADSI, or the
+                       ActiveDirectory module). Snapshot schema 4.
 #>
 
 [CmdletBinding()]
@@ -163,8 +167,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.8.1'
-$SnapshotSchemaVersion = 3
+$ComplianceScanVersion = '0.9.0'
+$SnapshotSchemaVersion = 4
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
 
@@ -380,7 +384,8 @@ foreach ($pair in @(
         @('Security Group Management', '37'), @('Credential Validation', '3F'), @('Detailed File Share', '44'),
         @('Removable Storage', '45'), @('Plug and Play Events', '48'), @('Group Membership', '49'),
         @('Other Account Management Events', '3A'), @('Directory Service Access', '3B'),
-        @('Directory Service Changes', '3C'))) {
+        @('Directory Service Changes', '3C'), @('Kerberos Service Ticket Operations', '40'),
+        @('Kerberos Authentication Service', '42'))) {
     $AuditSubcategoryGuid[$pair[0]] = "{0CCE92$($pair[1])$AuditGuidSuffix"
 }
 
@@ -1025,7 +1030,7 @@ function Invoke-Check {
 # The snapshot section each expectation source reads.
 $ExpectSection = @{
     Registry = 'Registry'; SecPol = 'SecurityPolicy'; Audit = 'AuditPolicy'; UserRight = 'UserRights'
-    Service = 'Services'; Feature = 'Features'
+    Service = 'Services'; Feature = 'Features'; Directory = 'Directory'
 }
 
 # Feature states that leave the feature in place, now or until a restart.
@@ -1181,6 +1186,231 @@ function Test-UserRight {
     }
 }
 
+# Domain functional levels (msDS-Behavior-Version) by Windows Server release.
+$DomainModeName = @{ 0 = '2000'; 1 = '2003 interim'; 2 = '2003'; 3 = '2008'; 4 = '2008 R2'; 5 = '2012'; 6 = '2012 R2'; 7 = '2016'; 10 = '2025' }
+
+# trustedDomain attributes (MS-ADTS 6.1.6.7): direction, and the attribute bits
+# the AD STIG checks read.
+$TrustOutbound = 2
+$TrustQuarantined = 0x4          # SID filtering on an external trust
+$TrustForestTransitive = 0x8     # a forest trust
+$TrustCrossOrganization = 0x10   # selective authentication
+$TrustWithinForest = 0x20        # parent-child or tree-root: not a trust the STIG reviews
+$TrustTreatAsExternal = 0x40     # SID history enabled on a forest trust
+
+function Format-NameList {
+    # Up to 20 names, then a count of the rest.
+    param([string[]]$Names)
+    $n = @($Names | Where-Object { $_ })
+    if ($n.Count -le 20) { return ($n -join ', ') }
+    return (($n[0..19] -join ', ') + ", and $($n.Count - 20) more")
+}
+
+function Get-DirectoryUser {
+    # Enabled user accounts that are members, directly or through nesting, of any
+    # of the named groups, once each.
+    param($Directory, [string[]]$Group)
+    $seen = @{}
+    foreach ($g in $Group) {
+        $entry = Get-Prop (Get-Prop $Directory 'Groups') $g
+        if ($null -eq $entry) { throw "Directory snapshot has no group '$g'." }
+        foreach ($u in @(Get-Prop $entry 'Users')) {
+            if ($null -eq $u -or -not (Get-Prop $u 'Enabled')) { continue }
+            if (-not $seen.ContainsKey("$($u.Sid)")) { $seen["$($u.Sid)"] = $u }
+        }
+    }
+    @($seen.Values | Sort-Object Name)
+}
+
+function Get-DirectoryMember {
+    # The direct members of one group.
+    param($Directory, [string]$Group)
+    $entry = Get-Prop (Get-Prop $Directory 'Groups') $Group
+    if ($null -eq $entry) { throw "Directory snapshot has no group '$Group'." }
+    @(Get-Prop $entry 'Members' | Where-Object { $null -ne $_ })
+}
+
+function Test-AdminSeparation {
+    # Members of one administrator group who also belong to the others.
+    param($Directory, [string]$Group, [string[]]$Others)
+    $users = @(Get-DirectoryUser $Directory @($Group))
+    $other = @{}
+    foreach ($u in @(Get-DirectoryUser $Directory $Others)) { $other["$($u.Sid)"] = $true }
+    $both = @($users | Where-Object { $other.ContainsKey("$($_.Sid)") } | ForEach-Object { $_.Name })
+    if ($both.Count -gt 0) {
+        return New-CheckResult Fail "$Group members also in $($Others -join ', '): $(Format-NameList $both)."
+    }
+    if ($users.Count -eq 0) { return New-CheckResult Pass "$Group has no enabled members." }
+    New-CheckResult Manual "$Group members: $(Format-NameList @($users | ForEach-Object { $_.Name }))." 'None is in another administrator group. Confirm each is a separate account documented with the ISSO.'
+}
+
+# Directory tests, by name: each reads the Directory section (and the snapshot,
+# for its date) and returns a result.
+$PrivilegedGroups = @('Administrators', 'Domain Admins', 'Enterprise Admins', 'Schema Admins', 'Account Operators', 'Backup Operators', 'Server Operators', 'Print Operators')
+$DirectoryTest = [ordered]@{
+    EnterpriseAdminsSeparate = {
+        param($D) Test-AdminSeparation $D 'Enterprise Admins' @('Domain Admins', 'Schema Admins', 'Backup Operators', 'Server Operators')
+    }
+    DomainAdminsSeparate = {
+        param($D) Test-AdminSeparation $D 'Domain Admins' @('Enterprise Admins', 'Backup Operators', 'Server Operators')
+    }
+    PrivilegedNotDelegated = {
+        param($D)
+        $users = @(Get-DirectoryUser $D $PrivilegedGroups)
+        $bad = @($users | Where-Object { -not (Get-Prop $_ 'NotDelegated') } | ForEach-Object { $_.Name })
+        if ($bad.Count -gt 0) { return New-CheckResult Fail "$($bad.Count) of $($users.Count) privileged accounts can be delegated: $(Format-NameList $bad)." }
+        New-CheckResult Pass "All $($users.Count) enabled privileged accounts are marked sensitive and cannot be delegated."
+    }
+    LapsCoverage = {
+        param($D)
+        $laps = Get-Prop $D 'Laps'
+        if ($null -eq $laps) { throw 'Directory snapshot has no Laps.' }
+        if ("$($laps.Schema)" -eq 'None') {
+            return New-CheckResult Manual 'No LAPS attributes in the schema.' 'Show how local administrator passwords are kept unique on each system.'
+        }
+        $missing = @(Get-Prop $laps 'Missing' | Where-Object { $_ })
+        if ($missing.Count -eq 0) { return New-CheckResult Pass "All $($laps.Computers) enabled computers have a LAPS password ($($laps.Schema))." }
+        New-CheckResult Manual "$($missing.Count) of $($laps.Computers) enabled computers have no LAPS password: $(Format-NameList $missing)." 'Each one listed needs another process that keeps its local administrator password unique.'
+    }
+    SmartCardHashRolling = {
+        param($D)
+        $mode = [int](Get-Prop $D 'DomainMode')
+        if ($mode -lt 7) {
+            return New-CheckResult Manual "Domain functional level $($DomainModeName[$mode]) is below 2016." 'Show that NT hashes of smart card accounts are rotated every 60 days.'
+        }
+        if (Get-Prop $D 'ExpirePasswordsOnSmartCardOnlyAccounts') { return New-CheckResult Pass 'Rolling of expiring NTLM secrets for smart card accounts is enabled.' }
+        New-CheckResult Fail 'Rolling of expiring NTLM secrets for smart card accounts is not enabled (msDS-ExpirePasswordsOnSmartCardOnlyAccounts).'
+    }
+    ProtectedUsers = {
+        param($D)
+        $mode = [int](Get-Prop $D 'DomainMode')
+        if ($mode -lt 6) { return New-CheckResult NotApplicable "Domain functional level $($DomainModeName[$mode]) is below 2012 R2." }
+        $sid = "$(Get-Prop $D 'DomainSid')"
+        $users = @(Get-DirectoryUser $D @('Enterprise Admins', 'Domain Admins', 'Schema Admins', 'Administrators', 'Account Operators', 'Backup Operators') |
+            Where-Object { "$($_.Sid)".StartsWith("$sid-") })
+        $out = @($users | Where-Object { -not (Get-Prop $_ 'Protected') } | ForEach-Object { $_.Name })
+        if ($out.Count -eq 0) { return New-CheckResult Pass "All $($users.Count) administrative accounts are in Protected Users." }
+        if ($out.Count -eq 1) { return New-CheckResult Pass "Only $($out[0]) is outside Protected Users." 'The STIG allows one account outside Protected Users, for availability.' }
+        New-CheckResult Fail "$($out.Count) administrative accounts are outside Protected Users: $(Format-NameList $out)." 'The STIG allows one, for availability; service accounts are also exempt.'
+    }
+    UnconstrainedDelegation = {
+        param($D)
+        $c = @(Get-Prop $D 'UnconstrainedDelegation' | Where-Object { $_ })
+        if ($c.Count -gt 0) { return New-CheckResult Fail "Computers other than domain controllers trusted for unconstrained delegation: $(Format-NameList $c)." }
+        New-CheckResult Pass 'No computer other than a domain controller is trusted for unconstrained delegation.'
+    }
+    DsrmPasswordAge = {
+        param($D, $S)
+        $last = ConvertTo-DateValue (Get-Prop $D 'DsrmLastSet')
+        if ($null -ne $last) {
+            $age = Get-SnapshotAge $S $last
+            if ($age -le 365) { return New-CheckResult Pass "DSRM password last set $($last.ToString('yyyy-MM-dd')) ($age days before the scan)." }
+            return New-CheckResult Fail "DSRM password last set $($last.ToString('yyyy-MM-dd')) ($age days before the scan)."
+        }
+        $why = if (Get-Prop $D 'DsrmLogReadable') { 'No DSRM password change (event 4794) in the Security log.' } else { 'The Security log was not readable.' }
+        New-CheckResult Manual $why 'Show that the DSRM password of each domain controller is changed at least yearly.'
+    }
+    DomainFunctionalLevel = {
+        param($D)
+        $mode = [int](Get-Prop $D 'DomainMode')
+        $name = if ($DomainModeName.ContainsKey($mode)) { $DomainModeName[$mode] } else { "level $mode" }
+        if ($mode -ge 7) { return New-CheckResult Pass "Domain functional level is Windows Server $name." }
+        New-CheckResult Fail "Domain functional level is Windows Server $name; needs 2016 or later."
+    }
+    TrustSidFiltering = {
+        param($D)
+        $trusts = @(Get-Prop $D 'Trusts' | Where-Object { $null -ne $_ -and -not ([int]$_.Attributes -band $TrustWithinForest) -and ([int]$_.Direction -band $TrustOutbound) })
+        if ($trusts.Count -eq 0) { return New-CheckResult NotApplicable 'This domain trusts no other domain or forest.' }
+        $bad = @(foreach ($t in $trusts) {
+                $a = [int]$t.Attributes
+                if ($a -band $TrustForestTransitive) { if ($a -band $TrustTreatAsExternal) { "$($t.Name) (SID history enabled)" } }
+                elseif (-not ($a -band $TrustQuarantined)) { "$($t.Name) (SID filtering off)" }
+            })
+        if ($bad.Count -gt 0) { return New-CheckResult Fail "Trusts that accept SIDs from other domains: $($bad -join ', ')." }
+        New-CheckResult Pass "SID filtering is on for every trust: $(Format-NameList @($trusts | ForEach-Object { $_.Name }))."
+    }
+    SelectiveAuthentication = {
+        param($D)
+        $forest = @(Get-Prop $D 'Trusts' | Where-Object { $null -ne $_ -and ([int]$_.Attributes -band $TrustForestTransitive) -and ([int]$_.Direction -band $TrustOutbound) })
+        if ($forest.Count -eq 0) { return New-CheckResult NotApplicable 'No outgoing forest trust.' }
+        $bad = @($forest | Where-Object { -not ([int]$_.Attributes -band $TrustCrossOrganization) } | ForEach-Object { $_.Name })
+        if ($bad.Count -gt 0) { return New-CheckResult Fail "Outgoing forest trusts without selective authentication: $($bad -join ', ')." }
+        New-CheckResult Pass "Selective authentication is on for every outgoing forest trust."
+    }
+    PreWindows2000Access = {
+        param($D)
+        $bad = @(Get-DirectoryMember $D 'Pre-Windows 2000 Compatible Access' | Where-Object { "$($_.Sid)" -in 'S-1-1-0', 'S-1-5-7' } | ForEach-Object { $_.Name })
+        if ($bad.Count -gt 0) { return New-CheckResult Fail "Pre-Windows 2000 Compatible Access includes $($bad -join ' and ')." }
+        New-CheckResult Pass 'Pre-Windows 2000 Compatible Access includes neither Everyone nor Anonymous Logon.'
+    }
+    TrustBuildersAndPolicyCreators = {
+        param($D)
+        $lines = @(foreach ($g in 'Incoming Forest Trust Builders', 'Group Policy Creator Owners') {
+                $m = @(Get-DirectoryMember $D $g | ForEach-Object { $_.Name })
+                if ($m.Count -gt 0) { "$($g): $(Format-NameList $m)" }
+            })
+        if ($lines.Count -eq 0) { return New-CheckResult Pass 'Incoming Forest Trust Builders and Group Policy Creator Owners have no members.' }
+        New-CheckResult Manual (($lines -join '; ') + '.') 'Each member must be documented as necessary with the ISSO.'
+    }
+    InterSiteReplication = {
+        param($D)
+        $sites = [int](Get-Prop $D 'Sites')
+        if ($sites -le 1) { return New-CheckResult NotApplicable 'The forest has a single site.' }
+        $links = @(Get-Prop $D 'SiteLinks' | Where-Object { $null -ne $_ })
+        $slow = @($links | Where-Object { [int]$_.ReplInterval -gt 1440 } | ForEach-Object { "$($_.Name) ($($_.ReplInterval) minutes)" })
+        if ($slow.Count -gt 0) { return New-CheckResult Fail "Site links replicating less than daily: $($slow -join ', ')." }
+        $scheduled = @($links | Where-Object { Get-Prop $_ 'HasSchedule' } | ForEach-Object { $_.Name })
+        if ($scheduled.Count -gt 0) { return New-CheckResult Manual "Site links with a replication schedule: $(Format-NameList $scheduled)." 'Confirm each schedule allows replication at least daily.' }
+        New-CheckResult Pass "All $($links.Count) site links replicate at least daily, with no schedule limits."
+    }
+    DomainControllerCount = {
+        param($D)
+        $n = [int](Get-Prop $D 'DomainControllers')
+        if ($n -ge 2) { return New-CheckResult Pass "$n domain controllers support the domain." }
+        New-CheckResult Manual "$n domain controller supports the domain." 'This is a finding unless the domain''s Availability categorization is low.'
+    }
+    SchemaAdminsEmpty = {
+        param($D)
+        if (-not (Get-Prop $D 'IsForestRoot')) { return New-CheckResult NotApplicable 'Schema Admins is reviewed in the forest root domain.' }
+        $m = @(Get-DirectoryMember $D 'Schema Admins' | ForEach-Object { $_.Name })
+        if ($m.Count -gt 0) { return New-CheckResult Fail "Schema Admins members: $(Format-NameList $m)." 'Members are allowed only while schema changes are being made.' }
+        New-CheckResult Pass 'Schema Admins has no members.'
+    }
+    AnonymousForestAccess = {
+        param($D)
+        $h = "$(Get-Prop $D 'DsHeuristics')"
+        if ($h.Length -ge 7 -and $h[6] -eq '2') { return New-CheckResult Fail "dSHeuristics is '$h': anonymous access to forest data is enabled." }
+        $shown = if ($h) { "'$h'" } else { 'not set' }
+        New-CheckResult Pass "dSHeuristics is $shown; anonymous access to forest data is off."
+    }
+    ForestRootPdcTime = {
+        param($D)
+        if (-not ((Get-Prop $D 'IsForestRoot') -and (Get-Prop $D 'IsPdcEmulator'))) {
+            return New-CheckResult NotApplicable 'Applies to the PDC emulator of the forest root domain; this domain controller is not it.'
+        }
+        $t = Get-Prop $D 'TimeSource'
+        $type = "$(Get-Prop $t 'Type')"
+        $server = "$(Get-Prop $t 'NtpServer')"
+        if ($type -ne 'NTP') { return New-CheckResult Fail "Windows Time type is '$type'; needs NTP with an external time source." }
+        New-CheckResult Manual "Windows Time type is NTP, server '$server'." 'Confirm the server is an authorized external (DoD) time source.'
+    }
+    CertificateTemplateApproval = {
+        param($D)
+        $cs = Get-Prop $D 'CertificateServices'
+        if (-not (Get-Prop $cs 'Present')) { return New-CheckResult NotApplicable 'No enterprise certificate authority in the forest.' }
+        $always = @('1.3.6.1.4.1.311.20.2.2', '2.5.29.37.0')
+        $withSubject = @('1.3.6.1.5.5.7.3.2', '1.3.6.1.5.2.3.4')
+        $bad = @(foreach ($t in @(Get-Prop $cs 'Templates' | Where-Object { $null -ne $_ })) {
+                if (Get-Prop $t 'ManagerApproval') { continue }
+                $ekus = @(Get-Prop $t 'Ekus' | Where-Object { $_ })
+                if ($ekus.Count -eq 0 -or @($ekus | Where-Object { $always -contains $_ }).Count) { "$($t.Name) (smart card logon, any purpose or no EKU)" }
+                elseif ((Get-Prop $t 'SuppliesSubject') -and @($ekus | Where-Object { $withSubject -contains $_ }).Count) { "$($t.Name) (client authentication, subject supplied in the request)" }
+            })
+        if ($bad.Count -gt 0) { return New-CheckResult Fail "Published templates that need manager approval and don't have it: $($bad -join ', ')." }
+        New-CheckResult Pass "Every published template that needs manager approval has it."
+    }
+}
+
 function Test-Expectation {
     # Judges one catalog expectation against the snapshot. Returns a result.
     param($Snapshot, $Expect)
@@ -1250,6 +1480,12 @@ function Test-Expectation {
                 return New-CheckResult Fail "Feature $($Expect.Name) is $($feat.State); needs it disabled or removed."
             }
             return New-CheckResult Pass "Feature $($Expect.Name) is $($feat.State)."
+        }
+        'Directory' {
+            $d = Get-Prop $Snapshot 'Directory'
+            if ($null -eq $d) { throw 'Snapshot has no Directory section.' }
+            if (-not $DirectoryTest.Contains("$($Expect.Name)")) { throw "Unknown directory test '$($Expect.Name)'." }
+            return & $DirectoryTest["$($Expect.Name)"] $d $Snapshot
         }
         default { throw "Unknown expectation source '$($Expect.Source)'." }
     }
@@ -1623,6 +1859,198 @@ function ConvertTo-IdentityEntry {
     [ordered]@{ Sid = $sid; Name = $name }
 }
 
+function ConvertTo-SidText {
+    # A SID from ADSI (bytes) or the ActiveDirectory module (SecurityIdentifier).
+    param($Value)
+    if ($null -eq $Value) { return '' }
+    if ($Value -is [byte[]]) { return ([Security.Principal.SecurityIdentifier]::new($Value, 0)).Value }
+    return "$Value"
+}
+
+function Find-DirectoryObject {
+    # One LDAP search of this domain controller, as a table of attribute values
+    # (always arrays) per object. ADSI first; the ActiveDirectory module's
+    # Get-ADObject when ADSI fails. Both read localhost, never another server.
+    param([string]$Base, [string]$Filter, [string[]]$Property, [ValidateSet('Base', 'OneLevel', 'Subtree')][string]$Scope = 'Subtree')
+    try {
+        $searcher = [DirectoryServices.DirectorySearcher]::new([adsi]"LDAP://localhost/$Base", $Filter, $Property, $Scope)
+        $searcher.PageSize = 500
+        $found = $searcher.FindAll()
+        try {
+            @(foreach ($r in $found) {
+                    $o = @{}
+                    foreach ($p in $Property) { $o[$p] = @($r.Properties[$p.ToLowerInvariant()]) }
+                    $o
+                })
+        } finally { $found.Dispose() }
+    } catch {
+        Write-Verbose "ADSI search under $Base failed; trying the ActiveDirectory module: $($_.Exception.Message)"
+        if (-not (Get-Command Get-ADObject -ErrorAction SilentlyContinue)) { throw }
+        $script:DirectorySource = 'ActiveDirectory module'
+        @(Get-ADObject -Server localhost -SearchBase $Base -LDAPFilter $Filter -SearchScope $Scope -Properties $Property | ForEach-Object {
+                $obj = $_
+                $o = @{}
+                foreach ($p in $Property) { $o[$p] = @(if ($null -ne $obj.$p) { $obj.$p }) }
+                $o
+            })
+    }
+}
+
+function Get-DirectoryRoot {
+    # The rootDSE naming contexts, from ADSI or the ActiveDirectory module.
+    $names = 'defaultNamingContext', 'rootDomainNamingContext', 'configurationNamingContext', 'schemaNamingContext', 'dsServiceName'
+    try {
+        $root = [adsi]'LDAP://localhost/RootDSE'
+        $out = @{}
+        foreach ($n in $names) { $out[$n] = "$($root.Properties[$n].Value)" }
+        if (-not $out.defaultNamingContext) { throw 'RootDSE returned no naming context.' }
+        $out
+    } catch {
+        Write-Verbose "ADSI rootDSE failed; trying the ActiveDirectory module: $($_.Exception.Message)"
+        if (-not (Get-Command Get-ADRootDSE -ErrorAction SilentlyContinue)) { throw }
+        $script:DirectorySource = 'ActiveDirectory module'
+        $root = Get-ADRootDSE -Server localhost
+        $out = @{}
+        foreach ($n in $names) { $out[$n] = "$($root.$n)" }
+        $out
+    }
+}
+
+function Get-DirectoryGroup {
+    # One group by SID: its direct members and the users in it, nesting included.
+    param([string]$Base, [string]$Sid, [string]$ProtectedDn)
+    $g = @(Find-DirectoryObject $Base "(&(objectClass=group)(objectSid=$Sid))" @('distinguishedName', 'member'))
+    if ($g.Count -eq 0) { return [ordered]@{ Found = $false; Members = @(); Users = @() } }
+    $dn = "$($g[0].distinguishedName[0])"
+    $members = @(foreach ($m in @($g[0].member)) {
+            $o = @(Find-DirectoryObject "$m" '(objectClass=*)' @('sAMAccountName', 'objectSid', 'cn') 'Base')
+            if ($o.Count -eq 0) { continue }
+            $name = if ($o[0].sAMAccountName.Count) { "$($o[0].sAMAccountName[0])" } else { "$($o[0].cn[0])" }
+            [ordered]@{ Name = $name; Sid = ConvertTo-SidText $o[0].objectSid[0] }
+        })
+    $chain = '1.2.840.113556.1.4.1941'
+    $protectedClause = if ($ProtectedDn) { "(memberOf:$($chain):=$ProtectedDn)" } else { '' }
+    $protected = @{}
+    if ($ProtectedDn) {
+        foreach ($u in @(Find-DirectoryObject $Base "(&(objectCategory=person)(objectClass=user)(memberOf:$($chain):=$dn)$protectedClause)" @('objectSid'))) {
+            $protected[(ConvertTo-SidText $u.objectSid[0])] = $true
+        }
+    }
+    $users = @(foreach ($u in @(Find-DirectoryObject $Base "(&(objectCategory=person)(objectClass=user)(memberOf:$($chain):=$dn))" @('sAMAccountName', 'objectSid', 'userAccountControl'))) {
+            $uac = [int]$u.userAccountControl[0]
+            $sid = ConvertTo-SidText $u.objectSid[0]
+            [ordered]@{ Name = "$($u.sAMAccountName[0])"; Sid = $sid; Enabled = -not ($uac -band 0x2); NotDelegated = [bool]($uac -band 0x100000); Protected = $protected.ContainsKey($sid) }
+        })
+    [ordered]@{ Found = $true; Members = $members; Users = $users }
+}
+
+function Get-DirectorySnapshot {
+    # What the AD Domain and Forest STIG checks read, from the domain controller
+    # the scan runs on. Read-only LDAP searches.
+    $script:DirectorySource = 'ADSI'
+    $root = Get-DirectoryRoot
+    $domainNc = $root.defaultNamingContext
+    $forestNc = $root.rootDomainNamingContext
+    $configNc = $root.configurationNamingContext
+    $head = @(Find-DirectoryObject $domainNc '(objectClass=domainDNS)' @('objectSid', 'msDS-Behavior-Version', 'msDS-ExpirePasswordsOnSmartCardOnlyAccounts', 'fSMORoleOwner') 'Base')[0]
+    $domainSid = ConvertTo-SidText $head.objectSid[0]
+    $forestSid = ConvertTo-SidText (@(Find-DirectoryObject $forestNc '(objectClass=domainDNS)' @('objectSid') 'Base')[0].objectSid[0])
+    $partitions = @(Find-DirectoryObject "CN=Partitions,$configNc" '(objectClass=crossRefContainer)' @('msDS-Behavior-Version') 'Base')
+
+    $protectedDn = ''
+    $pu = @(Find-DirectoryObject $domainNc "(&(objectClass=group)(objectSid=$domainSid-525))" @('distinguishedName'))
+    if ($pu.Count -gt 0) { $protectedDn = "$($pu[0].distinguishedName[0])" }
+    $groups = [ordered]@{}
+    foreach ($g in @(
+            @('Domain Admins', $domainNc, "$domainSid-512"), @('Enterprise Admins', $forestNc, "$forestSid-519"),
+            @('Schema Admins', $forestNc, "$forestSid-518"), @('Group Policy Creator Owners', $domainNc, "$domainSid-520"),
+            @('Protected Users', $domainNc, "$domainSid-525"), @('Administrators', $domainNc, 'S-1-5-32-544'),
+            @('Account Operators', $domainNc, 'S-1-5-32-548'), @('Server Operators', $domainNc, 'S-1-5-32-549'),
+            @('Print Operators', $domainNc, 'S-1-5-32-550'), @('Backup Operators', $domainNc, 'S-1-5-32-551'),
+            @('Pre-Windows 2000 Compatible Access', $domainNc, 'S-1-5-32-554'), @('Incoming Forest Trust Builders', $domainNc, 'S-1-5-32-557'))) {
+        # Users of the forest root's groups are checked against this domain's Protected Users.
+        $groups[$g[0]] = Get-DirectoryGroup $g[1] $g[2] $protectedDn
+    }
+
+    # Computers trusted for unconstrained delegation (0x80000), domain controllers (primary group 516) aside.
+    $unconstrained = @(Find-DirectoryObject $domainNc '(&(objectCategory=computer)(primaryGroupID=515)(userAccountControl:1.2.840.113556.1.4.803:=524288))' @('sAMAccountName') |
+        ForEach-Object { "$($_.sAMAccountName[0])".TrimEnd('$') })
+    $trusts = @(Find-DirectoryObject "CN=System,$domainNc" '(objectClass=trustedDomain)' @('trustPartner', 'trustDirection', 'trustType', 'trustAttributes') 'OneLevel' | ForEach-Object {
+            [ordered]@{ Name = "$($_.trustPartner[0])"; Direction = [int]$_.trustDirection[0]; Type = [int]$_.trustType[0]; Attributes = [int]$_.trustAttributes[0] }
+        })
+    $sites = @(Find-DirectoryObject "CN=Sites,$configNc" '(objectClass=site)' @('cn') 'OneLevel').Count
+    $links = @(Find-DirectoryObject "CN=Inter-Site Transports,CN=Sites,$configNc" '(objectClass=siteLink)' @('cn', 'replInterval', 'schedule') | ForEach-Object {
+            [ordered]@{ Name = "$($_.cn[0])"; ReplInterval = [int]$(if ($_.replInterval.Count) { $_.replInterval[0] } else { 180 }); HasSchedule = $_.schedule.Count -gt 0 }
+        })
+    $ds = @(Find-DirectoryObject "CN=Directory Service,CN=Windows NT,CN=Services,$configNc" '(objectClass=*)' @('dSHeuristics') 'Base')
+    $dcs = @(Find-DirectoryObject $domainNc '(&(objectCategory=computer)(primaryGroupID=516))' @('cn')).Count
+
+    # LAPS: the expiry attributes are readable more widely than the passwords.
+    $schemaNc = $root.schemaNamingContext
+    $hasWindowsLaps = @(Find-DirectoryObject $schemaNc '(lDAPDisplayName=msLAPS-PasswordExpirationTime)' @('cn') 'OneLevel').Count -gt 0
+    $hasLegacyLaps = @(Find-DirectoryObject $schemaNc '(lDAPDisplayName=ms-Mcs-AdmPwdExpirationTime)' @('cn') 'OneLevel').Count -gt 0
+    $lapsSchema = if ($hasWindowsLaps -and $hasLegacyLaps) { 'Windows LAPS and legacy LAPS' } elseif ($hasWindowsLaps) { 'Windows LAPS' } elseif ($hasLegacyLaps) { 'legacy LAPS' } else { 'None' }
+    $lapsProps = @('sAMAccountName') + @(if ($hasWindowsLaps) { 'msLAPS-PasswordExpirationTime' }) + @(if ($hasLegacyLaps) { 'ms-Mcs-AdmPwdExpirationTime' })
+    $computers = @(Find-DirectoryObject $domainNc '(&(objectCategory=computer)(primaryGroupID=515)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))' $lapsProps)
+    $missing = @(if ($lapsSchema -ne 'None') {
+            foreach ($c in $computers) {
+                $has = $false
+                foreach ($p in @($lapsProps | Select-Object -Skip 1)) { if ($c[$p].Count -gt 0) { $has = $true } }
+                if (-not $has) { "$($c.sAMAccountName[0])".TrimEnd('$') }
+            }
+        })
+
+    # Enterprise CAs and the templates they publish.
+    $pki = "CN=Public Key Services,CN=Services,$configNc"
+    $cas = @(Find-DirectoryObject "CN=Enrollment Services,$pki" '(objectClass=pKIEnrollmentService)' @('certificateTemplates') 'OneLevel')
+    $published = @($cas | ForEach-Object { @($_.certificateTemplates) } | ForEach-Object { "$_" } | Select-Object -Unique)
+    $templates = @(if ($cas.Count -gt 0) {
+            Find-DirectoryObject "CN=Certificate Templates,$pki" '(objectClass=pKICertificateTemplate)' @('cn', 'msPKI-Certificate-Name-Flag', 'msPKI-Enrollment-Flag', 'pKIExtendedKeyUsage') 'OneLevel' |
+                Where-Object { $published -contains "$($_.cn[0])" } | ForEach-Object {
+                    [ordered]@{
+                        Name            = "$($_.cn[0])"
+                        SuppliesSubject = [bool]([int]$(if ($_.'msPKI-Certificate-Name-Flag'.Count) { $_.'msPKI-Certificate-Name-Flag'[0] } else { 0 }) -band 0x1)
+                        ManagerApproval = [bool]([int]$(if ($_.'msPKI-Enrollment-Flag'.Count) { $_.'msPKI-Enrollment-Flag'[0] } else { 0 }) -band 0x2)
+                        Ekus            = @($_.pKIExtendedKeyUsage | ForEach-Object { "$_" })
+                    }
+                }
+        })
+
+    # DSRM password changes are logged as event 4794 on the domain controller.
+    $dsrm = $null
+    $dsrmReadable = $true
+    try {
+        $e = Get-WinEvent -FilterHashtable @{ LogName = 'Security'; Id = 4794 } -MaxEvents 1 -ErrorAction Stop
+        if ($e) { $dsrm = ConvertTo-IsoDate $e.TimeCreated }
+    } catch {
+        # Get-WinEvent throws when no event matches, as well as when the log is unreadable.
+        if ($_.FullyQualifiedErrorId -notlike 'NoMatchingEventsFound*') { $dsrmReadable = $false }
+        Write-Verbose "No DSRM password event read: $($_.Exception.Message)"
+    }
+    $w32 = 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters'
+    [ordered]@{
+        Source                                 = $script:DirectorySource
+        DomainSid                              = $domainSid
+        IsForestRoot                           = $domainNc -eq $forestNc
+        IsPdcEmulator                          = "$($head.fSMORoleOwner[0])" -eq $root.dsServiceName
+        DomainMode                             = [int]$head.'msDS-Behavior-Version'[0]
+        ForestMode                             = [int]$(if ($partitions.Count) { $partitions[0].'msDS-Behavior-Version'[0] } else { 0 })
+        ExpirePasswordsOnSmartCardOnlyAccounts = [bool]$(if ($head.'msDS-ExpirePasswordsOnSmartCardOnlyAccounts'.Count) { $head.'msDS-ExpirePasswordsOnSmartCardOnlyAccounts'[0] } else { $false })
+        Groups                                 = $groups
+        UnconstrainedDelegation                = $unconstrained
+        Trusts                                 = $trusts
+        Sites                                  = $sites
+        SiteLinks                              = $links
+        DsHeuristics                           = $(if ($ds.Count -and $ds[0].dSHeuristics.Count) { "$($ds[0].dSHeuristics[0])" } else { '' })
+        DomainControllers                      = $dcs
+        Laps                                   = [ordered]@{ Schema = $lapsSchema; Computers = $computers.Count; Missing = $missing }
+        CertificateServices                    = [ordered]@{ Present = $cas.Count -gt 0; Templates = $templates }
+        DsrmLastSet                            = $dsrm
+        DsrmLogReadable                        = $dsrmReadable
+        TimeSource                             = [ordered]@{ Type = "$((Read-RegistryValue $w32 'Type').Value)"; NtpServer = "$((Read-RegistryValue $w32 'NtpServer').Value)" }
+    }
+}
+
 function Get-EndpointSnapshot {
     # Collects every fact the checks and catalogs read (see Get-CollectionTarget). Read-only.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'Targets',
@@ -1815,6 +2243,13 @@ function Get-EndpointSnapshot {
         $group = Get-CimInstance -ClassName Win32_Group -Filter "LocalAccount=True AND SID='S-1-5-32-544'"
         $admins = @(Get-CimAssociatedInstance -InputObject $group -Association Win32_GroupUser | ForEach-Object { "$($_.Domain)\$($_.Name)" })
         [ordered]@{ Users = $users; Administrators = $admins }
+    }
+
+    Invoke-Collector $snap 'Directory' $elevated {
+        if ($snap.Meta.ProductType -ne 2) {
+            throw [System.PlatformNotSupportedException]::new('Active Directory is read on a domain controller.')
+        }
+        Get-DirectorySnapshot
     }
 
     Invoke-Collector $snap 'Hotfix' $elevated {
