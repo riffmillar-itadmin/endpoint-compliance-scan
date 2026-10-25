@@ -73,6 +73,15 @@
     # reviewed when the release changes. Reviewed lists automated rules DISA reworded
     # that a person has checked against that release; the build warns about the rest.
     #
+    # Corrections fix PowerStig's automation whatever release the catalog follows,
+    # with the same fields as Overrides. NotApplicableIf names the rules whose
+    # being met makes a rule NotApplicable, for checks that say "if
+    # WN25-00-000380 is configured, this is not applicable"; StandaloneOnly is
+    # DomainOnly's opposite. The build stops on an automated rule with no expected
+    # value, a check that lists several values (PowerStig keeps one), or a check
+    # waived by another rule, until a correction or override sets its Expect or
+    # NotApplicableIf.
+    #
     # PolicyFallback joins each rule PowerStig splits into a Group Policy value (.a)
     # and the local setting (.b) into one requirement that reads the local setting
     # only when no policy value exists, as the Firewall STIG's checks do. A catalog
@@ -84,6 +93,41 @@
             PowerStig = 'WindowsClient-11-2.7'
             Product = 'Windows 11'
             AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }
+            Corrections = @{
+                'V-253286' = @{
+                    Reason = 'NA when V-253287 and V-253288 are met: SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-253287', 'V-253288')
+                }
+                'V-253287' = @{
+                    Reason = 'NA when V-253286 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-253286')
+                }
+                'V-253288' = @{
+                    Reason = 'NA when V-253286 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-253286')
+                }
+                'V-253392' = @{
+                    Reason = 'NA when diagnostic data is Security or Basic (V-253393 met).'
+                    NotApplicableIf = @('V-253393')
+                }
+                'V-253393' = @{
+                    Reason = 'The check allows 0 (Security) or 1 (Basic); PowerStig keeps only 0.'
+                    Title = 'AllowTelemetry (DataCollection) in 0/1'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'in'; Values = @(0, 1) })
+                }
+                'V-253394.a' = @{
+                    Reason = 'Domain-joined systems: the check allows 0, 1, 2, 99 or 100; PowerStig keeps only 0. Standalone systems are checked by V-253394.b.'
+                    Title = 'DODownloadMode (DeliveryOptimization) in 0/1/2/99/100'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'; Name = 'DODownloadMode'; Op = 'in'; Values = @(0, 1, 2, 99, 100) })
+                    DomainOnly = $true
+                }
+                'V-253394.b' = @{
+                    Reason = 'Standalone systems (configured in Settings): the check allows 0 or 1; PowerStig keeps only 0.'
+                    Title = 'DODownloadMode (Config) in 0/1'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config'; Name = 'DODownloadMode'; Op = 'in'; Values = @(0, 1) })
+                    StandaloneOnly = $true
+                }
+            }
             Named = @{
                 'V-253259' = @{ Checks = @('SC-BitLocker') }
                 'V-253264' = @{ Checks = @('SI-AntivirusActive') }
@@ -123,6 +167,20 @@
             Role = 'member server'
             AppliesTo = @{ ProductTypes = @(3); Builds = @(17763) }
             NamedByText = $true
+            Corrections = @{
+                'V-205682' = @{
+                    Reason = 'NA when V-205683 and V-205684 are met: SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-205683', 'V-205684')
+                }
+                'V-205683' = @{
+                    Reason = 'NA when V-205682 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-205682')
+                }
+                'V-205684' = @{
+                    Reason = 'NA when V-205682 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-205682')
+                }
+            }
         }
         @{
             Id = 'DISA-STIG-WS2019-DC'
@@ -134,6 +192,20 @@
             Role = 'domain controller'
             AppliesTo = @{ ProductTypes = @(2); Builds = @(17763) }
             NamedByText = $true
+            Corrections = @{
+                'V-205682' = @{
+                    Reason = 'NA when V-205683 and V-205684 are met: SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-205683', 'V-205684')
+                }
+                'V-205683' = @{
+                    Reason = 'NA when V-205682 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-205682')
+                }
+                'V-205684' = @{
+                    Reason = 'NA when V-205682 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-205682')
+                }
+            }
         }
         @{
             Id = 'DISA-STIG-WS2022-MS'
@@ -145,6 +217,25 @@
             Role = 'member server'
             AppliesTo = @{ ProductTypes = @(3); Builds = @(20348) }
             NamedByText = $true
+            Corrections = @{
+                'V-254275' = @{
+                    Reason = 'NA when V-254276 and V-254277 are met: SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-254276', 'V-254277')
+                }
+                'V-254276' = @{
+                    Reason = 'NA when V-254275 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-254275')
+                }
+                'V-254277' = @{
+                    Reason = 'NA when V-254275 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-254275')
+                }
+                'V-254356' = @{
+                    Reason = 'The check allows 1 (required diagnostic data) or 3 (optional); PowerStig keeps only 1.'
+                    Title = 'AllowTelemetry (DataCollection) in 1/3'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'in'; Values = @(1, 3) })
+                }
+            }
             Overrides = @{
                 'V-254289' = @{
                     Reason = 'V2R11 raised the maximum password age from 60 to 180 days.'
@@ -195,6 +286,25 @@
             Role = 'domain controller'
             AppliesTo = @{ ProductTypes = @(2); Builds = @(20348) }
             NamedByText = $true
+            Corrections = @{
+                'V-254275' = @{
+                    Reason = 'NA when V-254276 and V-254277 are met: SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-254276', 'V-254277')
+                }
+                'V-254276' = @{
+                    Reason = 'NA when V-254275 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-254275')
+                }
+                'V-254277' = @{
+                    Reason = 'NA when V-254275 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-254275')
+                }
+                'V-254356' = @{
+                    Reason = 'The check allows 1 (required diagnostic data) or 3 (optional); PowerStig keeps only 1.'
+                    Title = 'AllowTelemetry (DataCollection) in 1/3'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'in'; Values = @(1, 3) })
+                }
+            }
             Overrides = @{
                 'V-254289' = @{
                     Reason = 'V2R11 raised the maximum password age from 60 to 180 days.'
@@ -241,6 +351,35 @@
             Role = 'member server'
             AppliesTo = @{ ProductTypes = @(3); Builds = @(26100) }
             NamedByText = $true
+            Corrections = @{
+                'V-278023' = @{
+                    Reason = 'NA when V-278024 and V-278025 are met: SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-278024', 'V-278025')
+                }
+                'V-278024' = @{
+                    Reason = 'NA when V-278023 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-278023')
+                }
+                'V-278025' = @{
+                    Reason = 'NA when V-278023 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-278023')
+                }
+                'V-278103' = @{
+                    Reason = 'The check allows 0 or 1; PowerStig has no value for this rule.'
+                    Title = 'AllowTelemetry (DataCollection) in 0/1'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'in'; Values = @(0, 1) })
+                }
+                'V-278104' = @{
+                    Reason = 'The check allows 0, 1, 2, 99 or 100 (3, Internet, is a finding); PowerStig keeps only 0.'
+                    Title = 'DODownloadMode (DeliveryOptimization) in 0/1/2/99/100'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'; Name = 'DODownloadMode'; Op = 'in'; Values = @(0, 1, 2, 99, 100) })
+                }
+                'V-278234' = @{
+                    Reason = 'The check allows 2 (consent on the secure desktop) or 1 (credentials on the secure desktop); PowerStig keeps only 2.'
+                    Title = 'ConsentPromptBehaviorAdmin (System) in 1/2'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name = 'ConsentPromptBehaviorAdmin'; Op = 'in'; Values = @(1, 2) })
+                }
+            }
             Overrides = @{
                 'V-278037' = @{
                     Reason = 'V1R4 raised the maximum password age from 60 to 180 days.'
@@ -291,6 +430,35 @@
             Role = 'domain controller'
             AppliesTo = @{ ProductTypes = @(2); Builds = @(26100) }
             NamedByText = $true
+            Corrections = @{
+                'V-278023' = @{
+                    Reason = 'NA when V-278024 and V-278025 are met: SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-278024', 'V-278025')
+                }
+                'V-278024' = @{
+                    Reason = 'NA when V-278023 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-278023')
+                }
+                'V-278025' = @{
+                    Reason = 'NA when V-278023 is met (SMBv1 removed): SMBv1 can be disabled either way.'
+                    NotApplicableIf = @('V-278023')
+                }
+                'V-278103' = @{
+                    Reason = 'The check allows 0 or 1; PowerStig has no value for this rule.'
+                    Title = 'AllowTelemetry (DataCollection) in 0/1'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'in'; Values = @(0, 1) })
+                }
+                'V-278104' = @{
+                    Reason = 'The check allows 0, 1, 2, 99 or 100 (3, Internet, is a finding); PowerStig keeps only 0.'
+                    Title = 'DODownloadMode (DeliveryOptimization) in 0/1/2/99/100'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'; Name = 'DODownloadMode'; Op = 'in'; Values = @(0, 1, 2, 99, 100) })
+                }
+                'V-278234' = @{
+                    Reason = 'The check allows 2 (consent on the secure desktop) or 1 (credentials on the secure desktop); PowerStig keeps only 2.'
+                    Title = 'ConsentPromptBehaviorAdmin (System) in 1/2'
+                    Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name = 'ConsentPromptBehaviorAdmin'; Op = 'in'; Values = @(1, 2) })
+                }
+            }
             Overrides = @{
                 'V-278037' = @{
                     Reason = 'V1R4 raised the maximum password age from 60 to 180 days.'

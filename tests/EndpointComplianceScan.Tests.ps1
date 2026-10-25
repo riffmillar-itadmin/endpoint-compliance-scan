@@ -275,10 +275,14 @@ Describe 'Framework catalogs' {
         foreach ($n in $names) { $AuditSubcategoryGuid.Keys | Should -Contain $n }
     }
 
-    It 'collects every registry value, service and feature any catalog expects' {
+    It 'collects every registry value, service and feature any catalog expects, waivers included' {
         $t = Get-CollectionTarget -Catalogs $Catalogs -Thresholds (Get-Threshold)
+        $waivers = 0
         foreach ($c in $Catalogs) {
-            foreach ($e in @($c.Requirements | Where-Object { $_.Contains('Expect') } | ForEach-Object { $_.Expect })) {
+            $expects = @($c.Requirements | Where-Object { $_.Contains('Expect') } | ForEach-Object { $_.Expect })
+            $nested = @($expects | Where-Object { $_.Contains('NotApplicableIf') } | ForEach-Object { $_.NotApplicableIf.Expect })
+            $waivers += $nested.Count
+            foreach ($e in @($expects + $nested)) {
                 switch ($e.Source) {
                     'Registry' {
                         $t.Registry.Contains("$($e.Path)\$($e.Name)") | Should -BeTrue
@@ -290,6 +294,31 @@ Describe 'Framework catalogs' {
             }
         }
         foreach ($k in Get-RegistryTarget) { $t.Registry.Contains($k) | Should -BeTrue }
+        $waivers | Should -BeGreaterThan 0
+    }
+
+    It 'expects a value in every registry expectation (regression: a blank AllowTelemetry on Server 2025)' {
+        foreach ($c in $Catalogs) {
+            foreach ($e in @($c.Requirements | Where-Object { $_.Contains('Expect') } | ForEach-Object { $_.Expect } | Where-Object { $_.Source -eq 'Registry' -and $_.Contains('Value') })) {
+                "$($e.Value)" | Should -Not -BeNullOrEmpty -Because "$($c.Id) $($e.Name)"
+            }
+        }
+    }
+
+    It 'waives only with rules of the same catalog, and copies their expectations' {
+        foreach ($c in $Catalogs) {
+            foreach ($r in @($c.Requirements | Where-Object { $_.Contains('Expect') })) {
+                foreach ($e in @($r.Expect | Where-Object { $_.Contains('NotApplicableIf') })) {
+                    $copied = @($e.NotApplicableIf.Expect)
+                    $named = @(foreach ($id in @($e.NotApplicableIf.Rules)) {
+                            $other = @($c.Requirements | Where-Object { $_.Id -eq $id })
+                            $other.Count | Should -Be 1 -Because "$($c.Id) $($r.Id) names $id"
+                            @($other[0].Expect)
+                        })
+                    $copied.Count | Should -Be $named.Count -Because "$($c.Id) $($r.Id)"
+                }
+            }
+        }
     }
 
     It 'keeps a backslash in a registry value name apart from the path' {
@@ -494,6 +523,47 @@ Describe 'Expectations' {
         $r.State | Should -Be $Want
     }
 
+    It 'judges a StandaloneOnly expectation on <Case>' -ForEach @(
+        @{ Case = 'a standalone system normally'; InDomain = $false; Want = 'Fail' }
+        @{ Case = 'a domain member as not applicable'; InDomain = $true; Want = 'NotApplicable' }
+    ) {
+        $e = @{ Source = 'Registry'; Path = $Sys; Name = 'EnableLUA'; Op = 'eq'; Value = 1; StandaloneOnly = $true }
+        $r = Test-ExpectOn $e { param($s) Write-RegFact $s "$Sys\EnableLUA" 0; $s.Meta.PartOfDomain = $InDomain }
+        $r.State | Should -Be $Want
+    }
+
+    It 'judges an expectation the STIG waives when <Case>' -ForEach @(
+        @{ Case = 'every named rule is met'; Smb1 = 'Disabled'; Start = 4; Want = 'NotApplicable'; Evidence = '^V-2 and V-3 are met' }
+        @{ Case = 'one named rule is not met'; Smb1 = 'Disabled'; Start = 2; Want = 'Fail'; Evidence = 'not set' }
+        @{ Case = 'no named rule is met'; Smb1 = 'Enabled'; Start = 2; Want = 'Fail'; Evidence = 'not set' }
+    ) {
+        $mrx = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'
+        $waiver = @{ Rules = @('V-2', 'V-3'); Expect = @(
+                @{ Source = 'Feature'; Name = 'SMB1Protocol'; State = 'Disabled' }
+                @{ Source = 'Registry'; Path = $mrx; Name = 'Start'; Op = 'eq'; Value = 4 }
+            ) }
+        $e = @{ Source = 'Registry'; Path = $Sys; Name = 'EnableLUA'; Op = 'eq'; Value = 1; NotApplicableIf = $waiver }
+        $r = Test-ExpectOn $e {
+            param($s)
+            Write-RegFact $s "$Sys\EnableLUA" $null
+            Write-Fact $s.Features 'SMB1Protocol' ([pscustomobject]@{ Present = $true; State = $Smb1 })
+            Write-Fact $s.Registry "$mrx\Start" ([pscustomobject]@{ Present = $true; Value = $Start; Denied = $false })
+        }
+        $r.State | Should -Be $Want
+        $r.Evidence | Should -Match $Evidence
+    }
+
+    It 'judges a waived expectation normally when the waiver cannot be judged' {
+        $e = @{ Source = 'Registry'; Path = $Sys; Name = 'EnableLUA'; Op = 'eq'; Value = 1
+            NotApplicableIf = @{ Rules = @('V-2'); Expect = @(@{ Source = 'Feature'; Name = 'SMB1Protocol'; State = 'Disabled' }) } }
+        $r = Test-ExpectOn $e {
+            param($s)
+            Write-RegFact $s "$Sys\EnableLUA" 0
+            $s.Collection.Features.Status = 'Skipped'; $s.Collection.Features.Reason = 'Needs an elevated session.'
+        }
+        $r.State | Should -Be 'Fail'
+    }
+
     It 'errors a DomainOnly expectation when the snapshot has no domain membership' {
         $e = @{ Source = 'Registry'; Path = $Sys; Name = 'EnableLUA'; Op = 'eq'; Value = 1; DomainOnly = $true }
         (Test-ExpectOn $e { param($s) $s.Meta.PSObject.Properties.Remove('PartOfDomain') }).State | Should -Be 'Error'
@@ -579,6 +649,56 @@ Describe 'Expectations' {
         $r = (Invoke-Evaluation (Get-Fixture) -Level 'One' -For $fw).Requirements[0]
         $r.State | Should -Be 'Fail'
         $r.Checks | Should -Be 'AC-UacEnabled=Pass; SecPol:PasswordComplexity=Fail'
+    }
+}
+
+Describe 'Server 2025 domain controller STIG (regression: false failures in a lab scan)' {
+    BeforeAll {
+        $script:Dc = Get-Framework 'DISA-STIG-WS2025-DC'
+        function Get-DcState {
+            param([scriptblock]$Mutate, [string[]]$Id)
+            $s = Get-CompliantSnapshot $Dc
+            & $Mutate $s
+            $e = Invoke-Evaluation $s -Thresholds (Get-Threshold $Dc) -Level $null -For $Dc
+            foreach ($i in $Id) { ($e.Requirements | Where-Object Requirement -eq $i).State }
+        }
+        $script:Smb = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters\SMB1'
+        $script:Mrx = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10\Start'
+        $script:Telemetry = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection\AllowTelemetry'
+        $script:DoMode = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization\DODownloadMode'
+        $script:Consent = "$Sys\ConsentPromptBehaviorAdmin"
+    }
+
+    It 'leaves the SMB1 settings not applicable when SMB1 is removed' {
+        Get-DcState {
+            param($s)
+            Write-RegFact $s $Smb $null; Write-RegFact $s $Mrx $null
+            Write-Fact $s.Features 'FS-SMB1' ([pscustomobject]@{ Present = $true; State = 'Removed' })
+        } 'V-278023', 'V-278024', 'V-278025' | Should -Be @('Pass', 'NotApplicable', 'NotApplicable')
+    }
+
+    It 'leaves SMB1 removal not applicable when both SMB1 settings are met, and fails all three when none is' {
+        Get-DcState {
+            param($s) Write-Fact $s.Features 'FS-SMB1' ([pscustomobject]@{ Present = $true; State = 'Installed' })
+        } 'V-278023', 'V-278024', 'V-278025' | Should -Be @('NotApplicable', 'Pass', 'Pass')
+        Get-DcState {
+            param($s)
+            Write-RegFact $s $Smb $null; Write-RegFact $s $Mrx 2
+            Write-Fact $s.Features 'FS-SMB1' ([pscustomobject]@{ Present = $true; State = 'Installed' })
+        } 'V-278023', 'V-278024', 'V-278025' | Should -Be @('Fail', 'Fail', 'Fail')
+    }
+
+    It 'judges <Name> = <Value> as <Want>' -ForEach @(
+        @{ Name = 'AllowTelemetry'; Id = 'V-278103'; Value = 1; Want = 'Pass' }
+        @{ Name = 'AllowTelemetry'; Id = 'V-278103'; Value = 3; Want = 'Fail' }
+        @{ Name = 'AllowTelemetry'; Id = 'V-278103'; Value = $null; Want = 'Fail' }
+        @{ Name = 'DODownloadMode'; Id = 'V-278104'; Value = 99; Want = 'Pass' }
+        @{ Name = 'DODownloadMode'; Id = 'V-278104'; Value = 3; Want = 'Fail' }
+        @{ Name = 'ConsentPromptBehaviorAdmin'; Id = 'V-278234'; Value = 1; Want = 'Pass' }
+        @{ Name = 'ConsentPromptBehaviorAdmin'; Id = 'V-278234'; Value = 5; Want = 'Fail' }
+    ) {
+        $key = @{ AllowTelemetry = $Telemetry; DODownloadMode = $DoMode; ConsentPromptBehaviorAdmin = $Consent }[$Name]
+        Get-DcState { param($s) Write-RegFact $s $key $Value } $Id | Should -Be $Want
     }
 }
 

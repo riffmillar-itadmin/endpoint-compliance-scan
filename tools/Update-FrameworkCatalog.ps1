@@ -696,13 +696,58 @@ function Set-StigOverride {
             $r.Level = $Severity[$Disa[$o.MoveTo].Severity]
         }
         foreach ($k in 'Title', 'Checks', 'Expect', 'Note') { if ($o.Contains($k)) { $r[$k] = $o[$k] } }
-        if ($o.Contains('DomainOnly') -and $o.DomainOnly) {
-            if (-not $r.Contains('Expect')) { throw "tools/mappings marks $id DomainOnly, but it has no expectations." }
-            foreach ($e in @($r.Expect)) { $e.DomainOnly = $true }
+        foreach ($flag in 'DomainOnly', 'StandaloneOnly') {
+            if (-not ($o.Contains($flag) -and $o[$flag])) { continue }
+            if (-not $r.Contains('Expect')) { throw "tools/mappings marks $id $flag, but it has no expectations." }
+            foreach ($e in @($r.Expect)) { $e[$flag] = $true }
         }
         $null = $Reworded.Remove($id)
     }
+    # Waivers last, so each copies the other rules' final expectations.
+    $waived = [ordered]@{}
+    foreach ($id in $Overrides.Keys) {
+        if (-not $Overrides[$id].Contains('NotApplicableIf')) { continue }
+        $r = @($list | Where-Object { $_.Id -eq $(if ($Overrides[$id].Contains('MoveTo')) { $Overrides[$id].MoveTo } else { $id }) })[0]
+        if (-not $r.Contains('Expect')) { throw "tools/mappings waives $id (NotApplicableIf), but it has no expectations." }
+        $rules = @($Overrides[$id].NotApplicableIf)
+        $expect = @(foreach ($w in $rules) {
+                $other = @($list | Where-Object { $_.Id -eq $w })
+                if ($other.Count -eq 0 -or -not $other[0].Contains('Expect')) { throw "tools/mappings waives $id when $w is met, but $w has no expectations." }
+                foreach ($e in @($other[0].Expect)) {
+                    $copy = [ordered]@{}
+                    foreach ($k in $e.Keys) { if ($k -ne 'NotApplicableIf') { $copy[$k] = $e[$k] } }
+                    $copy
+                }
+            })
+        $waived[$r.Id] = @{ Requirement = $r; Waiver = [ordered]@{ Rules = $rules; Expect = $expect } }
+    }
+    foreach ($w in $waived.Values) {
+        foreach ($e in @($w.Requirement.Expect)) { $e.NotApplicableIf = $w.Waiver }
+    }
     , $list
+}
+
+function Get-UnreviewedValue {
+    # Automated rules whose expected value needs a person: a blank value, a check
+    # that lists several values (PowerStig keeps one), or a check DISA waives when
+    # another rule (named by STIG ID) is met. Each needs a correction or override
+    # that sets Expect, or NotApplicableIf for a waiver. Returns 'V-1: reason' lines.
+    param($Requirements, $Raw, [object[]]$Corrections)
+    foreach ($r in $Requirements) {
+        if (-not $r.Contains('Expect')) { continue }
+        $o = @{}
+        foreach ($c in $Corrections) { if ($c.Contains($r.Id)) { foreach ($k in $c[$r.Id].Keys) { $o[$k] = $true } } }
+        $parts = @(if ($Raw.ContainsKey($r.Id)) { $Raw[$r.Id] } else { $Raw.Keys | Where-Object { $_ -like "$($r.Id).?" } | ForEach-Object { $Raw[$_] } })
+        $text = $parts -join "`n"
+        $eq = @($r.Expect | Where-Object { $_.Source -eq 'Registry' -and $_.Contains('Op') -and $_.Op -eq 'eq' })
+        if ($eq.Count -and -not $o.Contains('Expect')) {
+            if (@($eq | Where-Object { "$($_.Value)" -eq '' }).Count) { "$($r.Id): no expected value" }
+            elseif (@([regex]::Matches($text, '0x[0-9a-fA-F]+\s*\((\d+)\)') | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique).Count -gt 1) { "$($r.Id): the check lists several values" }
+        }
+        if (-not $o.Contains('NotApplicableIf') -and $text -match 'this is (?:NA|not applicable)' -and $text -match '\b[A-Z]{2}\d{2}-[A-Z0-9]{2}-\d{6}\b') {
+            "$($r.Id): the check is waived when another rule is met"
+        }
+    }
 }
 
 function Join-PolicyFallback {
@@ -762,6 +807,8 @@ function Get-StigCatalog {
     $source = "Rule data from the processed STIG in Microsoft's PowerStig project (MIT), https://github.com/microsoft/PowerStig;"
     $note = "PowerStig $($Entry.PowerStig)"
     $reworded = [Collections.Generic.List[string]]::new()
+    $raw = @{}
+    foreach ($rule in $stig.Rules) { $raw[$rule.Id] = Get-StigData $rule.Data 'RawString' }
 
     $bench = $Benchmarks[$(if ($Entry.Contains('DisaBenchmark')) { $Entry.DisaBenchmark } else { $stig.StigId })]
     if ($bench) {
@@ -783,8 +830,6 @@ function Get-StigCatalog {
         $movedRole = @($have | Where-Object { $otherRole -contains $_ })
         $kept = [Collections.Generic.List[object]]::new()
         $flat = { param($Text) ([regex]::Replace("$Text", '\s+', ' ')).Trim().ToLowerInvariant() }
-        $raw = @{}
-        foreach ($rule in $stig.Rules) { $raw[$rule.Id] = Get-StigData $rule.Data 'RawString' }
         foreach ($r in $reqs) {
             $b = $disa[(& $baseId $r.Id)]
             if (-not $b -or $otherRole -contains $b.GroupId) { continue }
@@ -816,6 +861,16 @@ function Get-StigCatalog {
         $note = "DISA V$($version)R$release, PowerStig $($Entry.PowerStig): $added new rule(s) Manual, $($retired.Count) retired rule(s) dropped$(if ($retired.Count) { " ($($retired -join ', '))" })"
         if ($movedRole.Count) { $note += ", $($movedRole.Count) rule(s) now for the other role only ($($movedRole -join ', '))" }
     }
+
+    # Corrections fix PowerStig's automation whatever release the catalog follows.
+    # The build stops on a value a person hasn't reviewed (Get-UnreviewedValue).
+    $corrections = if ($Entry.Contains('Corrections')) { $Entry.Corrections } else { @{} }
+    $overrides = if ($bench -and $Entry.Contains('Overrides')) { $Entry.Overrides } else { @{} }
+    $unreviewed = @(Get-UnreviewedValue $reqs $raw @($corrections, $overrides))
+    if ($unreviewed.Count -gt 0) {
+        throw "$($Entry.Id): these automated rules need a correction in tools/mappings/disa-stig.psd1 (Expect, or NotApplicableIf): $($unreviewed -join '; ')."
+    }
+    if ($corrections.Count) { $reqs = Set-StigOverride $reqs $corrections @{} ([Collections.Generic.List[string]]::new()) }
 
     $auto = @($reqs | Where-Object { $_.Contains('Expect') -or $_.Checks.Count -gt 0 }).Count
     $extra = if ($Entry.Contains('Role')) { " ($($Entry.Role))" } else { '' }
