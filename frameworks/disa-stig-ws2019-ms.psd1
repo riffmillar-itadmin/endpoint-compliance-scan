@@ -995,7 +995,19 @@
             Title = 'SMB1 (Parameters) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'; Name = 'SMB1'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
+                    Name = 'SMB1'
+                    Op = 'eq'
+                    Value = 0
+                    NotApplicableIf = @{
+                        Rules = @('V-205682')
+                        Expect = @(
+                            @{ Source = 'Feature'; Name = 'FS-SMB1'; State = 'Disabled' }
+                        )
+                    }
+                }
             )
         }
         @{
@@ -1005,7 +1017,19 @@
             Title = 'Start (mrxsmb10) = 4'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'; Name = 'Start'; Op = 'eq'; Value = 4 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'
+                    Name = 'Start'
+                    Op = 'eq'
+                    Value = 4
+                    NotApplicableIf = @{
+                        Rules = @('V-205682')
+                        Expect = @(
+                            @{ Source = 'Feature'; Name = 'FS-SMB1'; State = 'Disabled' }
+                        )
+                    }
+                }
             )
         }
         @{
@@ -2541,7 +2565,18 @@
             Title = 'Feature FS-SMB1 is not installed'
             Checks = @()
             Expect = @(
-                @{ Source = 'Feature'; Name = 'FS-SMB1'; State = 'Disabled' }
+                @{
+                    Source = 'Feature'
+                    Name = 'FS-SMB1'
+                    State = 'Disabled'
+                    NotApplicableIf = @{
+                        Rules = @('V-205683', 'V-205684')
+                        Expect = @(
+                            @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'; Name = 'SMB1'; Op = 'eq'; Value = 0 }
+                            @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'; Name = 'Start'; Op = 'eq'; Value = 4 }
+                        )
+                    }
+                }
             )
         }
         @{

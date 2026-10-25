@@ -928,7 +928,19 @@
             Title = 'SMB1 (Parameters) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'; Name = 'SMB1'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
+                    Name = 'SMB1'
+                    Op = 'eq'
+                    Value = 0
+                    NotApplicableIf = @{
+                        Rules = @('V-253286')
+                        Expect = @(
+                            @{ Source = 'Feature'; Name = 'SMB1Protocol'; State = 'Disabled' }
+                        )
+                    }
+                }
             )
         }
         @{
@@ -938,7 +950,19 @@
             Title = 'Start (mrxsmb10) = 4'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'; Name = 'Start'; Op = 'eq'; Value = 4 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'
+                    Name = 'Start'
+                    Op = 'eq'
+                    Value = 4
+                    NotApplicableIf = @{
+                        Rules = @('V-253286')
+                        Expect = @(
+                            @{ Source = 'Feature'; Name = 'SMB1Protocol'; State = 'Disabled' }
+                        )
+                    }
+                }
             )
         }
         @{
@@ -1516,6 +1540,12 @@
                     Name = 'LimitEnhancedDiagnosticDataWindowsAnalytics'
                     Op = 'eq'
                     Value = 1
+                    NotApplicableIf = @{
+                        Rules = @('V-253393')
+                        Expect = @(
+                            @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'in'; Values = @(0, 1) }
+                        )
+                    }
                 }
             )
         }
@@ -1523,35 +1553,43 @@
             Id = 'V-253393'
             Family = 'Config'
             Level = 'CAT II'
-            Title = 'AllowTelemetry (DataCollection) = 0'
+            Title = 'AllowTelemetry (DataCollection) in 0/1'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'eq'; Value = 0 }
+                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'in'; Values = @(0, 1) }
             )
         }
         @{
             Id = 'V-253394.a'
             Family = 'Config'
             Level = 'CAT III'
-            Title = 'DODownloadMode (DeliveryOptimization) = 0'
+            Title = 'DODownloadMode (DeliveryOptimization) in 0/1/2/99/100'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'; Name = 'DODownloadMode'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'
+                    Name = 'DODownloadMode'
+                    Op = 'in'
+                    Values = @(0, 1, 2, 99, 100)
+                    DomainOnly = $true
+                }
             )
         }
         @{
             Id = 'V-253394.b'
             Family = 'Config'
             Level = 'CAT III'
-            Title = 'DODownloadMode (Config) = 0'
+            Title = 'DODownloadMode (Config) in 0/1'
             Checks = @()
             Expect = @(
                 @{
                     Source = 'Registry'
                     Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config'
                     Name = 'DODownloadMode'
-                    Op = 'eq'
-                    Value = 0
+                    Op = 'in'
+                    Values = @(0, 1)
+                    StandaloneOnly = $true
                 }
             )
         }
@@ -2885,7 +2923,18 @@
             Title = 'Feature SMB1Protocol is not installed'
             Checks = @()
             Expect = @(
-                @{ Source = 'Feature'; Name = 'SMB1Protocol'; State = 'Disabled' }
+                @{
+                    Source = 'Feature'
+                    Name = 'SMB1Protocol'
+                    State = 'Disabled'
+                    NotApplicableIf = @{
+                        Rules = @('V-253287', 'V-253288')
+                        Expect = @(
+                            @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'; Name = 'SMB1'; Op = 'eq'; Value = 0 }
+                            @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'; Name = 'Start'; Op = 'eq'; Value = 4 }
+                        )
+                    }
+                }
             )
         }
         @{

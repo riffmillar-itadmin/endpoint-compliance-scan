@@ -1171,7 +1171,19 @@
             Title = 'SMB1 (Parameters) = 0'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'; Name = 'SMB1'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'
+                    Name = 'SMB1'
+                    Op = 'eq'
+                    Value = 0
+                    NotApplicableIf = @{
+                        Rules = @('V-278023')
+                        Expect = @(
+                            @{ Source = 'Feature'; Name = 'FS-SMB1'; State = 'Disabled' }
+                        )
+                    }
+                }
             )
         }
         @{
@@ -1181,7 +1193,19 @@
             Title = 'Start (mrxsmb10) = 4'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'; Name = 'Start'; Op = 'eq'; Value = 4 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'
+                    Name = 'Start'
+                    Op = 'eq'
+                    Value = 4
+                    NotApplicableIf = @{
+                        Rules = @('V-278023')
+                        Expect = @(
+                            @{ Source = 'Feature'; Name = 'FS-SMB1'; State = 'Disabled' }
+                        )
+                    }
+                }
             )
         }
         @{
@@ -1467,20 +1491,26 @@
             Id = 'V-278103'
             Family = 'Config'
             Level = 'CAT II'
-            Title = 'AllowTelemetry (DataCollection) = '
+            Title = 'AllowTelemetry (DataCollection) in 0/1'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'eq'; Value = '' }
+                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection'; Name = 'AllowTelemetry'; Op = 'in'; Values = @(0, 1) }
             )
         }
         @{
             Id = 'V-278104'
             Family = 'Config'
             Level = 'CAT III'
-            Title = 'DODownloadMode (DeliveryOptimization) = 0'
+            Title = 'DODownloadMode (DeliveryOptimization) in 0/1/2/99/100'
             Checks = @()
             Expect = @(
-                @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'; Name = 'DODownloadMode'; Op = 'eq'; Value = 0 }
+                @{
+                    Source = 'Registry'
+                    Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization'
+                    Name = 'DODownloadMode'
+                    Op = 'in'
+                    Values = @(0, 1, 2, 99, 100)
+                }
             )
         }
         @{
@@ -2196,15 +2226,15 @@
             Id = 'V-278234'
             Family = 'Config'
             Level = 'CAT II'
-            Title = 'ConsentPromptBehaviorAdmin (System) = 2'
+            Title = 'ConsentPromptBehaviorAdmin (System) in 1/2'
             Checks = @()
             Expect = @(
                 @{
                     Source = 'Registry'
                     Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
                     Name = 'ConsentPromptBehaviorAdmin'
-                    Op = 'eq'
-                    Value = 2
+                    Op = 'in'
+                    Values = @(1, 2)
                 }
             )
         }
@@ -2781,7 +2811,18 @@
             Title = 'Feature FS-SMB1 is not installed'
             Checks = @()
             Expect = @(
-                @{ Source = 'Feature'; Name = 'FS-SMB1'; State = 'Disabled' }
+                @{
+                    Source = 'Feature'
+                    Name = 'FS-SMB1'
+                    State = 'Disabled'
+                    NotApplicableIf = @{
+                        Rules = @('V-278024', 'V-278025')
+                        Expect = @(
+                            @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'; Name = 'SMB1'; Op = 'eq'; Value = 0 }
+                            @{ Source = 'Registry'; Path = 'HKLM:\SYSTEM\CurrentControlSet\Services\mrxsmb10'; Name = 'Start'; Op = 'eq'; Value = 4 }
+                        )
+                    }
+                }
             )
         }
         @{

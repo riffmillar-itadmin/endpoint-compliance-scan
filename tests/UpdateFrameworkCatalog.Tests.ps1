@@ -438,6 +438,79 @@ Describe 'Joining a policy value with its local setting' {
     }
 }
 
+Describe 'Values a person must review' {
+    BeforeAll {
+        $script:Pol = 'HKLM:\SOFTWARE\Policies\Westmark'
+        function Get-RegRule {
+            param([string]$Id, $Expect)
+            $e = [ordered]@{ Source = 'Registry'; Path = $Pol; Name = 'X' }
+            foreach ($k in $Expect.Keys) { $e[$k] = $Expect[$k] }
+            New-Requirement $Id 'Config' 'CAT II' 'X' @() @($e)
+        }
+    }
+
+    It 'names <Case>' -ForEach @(
+        @{ Case = 'a blank expected value (regression: AllowTelemetry on Server 2025)'; Expect = @{ Op = 'eq'; Value = '' }; Raw = "Value Name: AllowTelemetry`nType: REG_DWORD`nValue0x00000000 (0), 0x00000001 (1)"; Want = 'V-1: no expected value' }
+        @{ Case = 'a check that lists several values'; Expect = @{ Op = 'eq'; Value = 0 }; Raw = "Value: 0x00000000 (0) - No peering`n0x00000001 (1) - LAN`nA value of 0x00000003 (3) is a finding."; Want = 'V-1: the check lists several values' }
+        @{ Case = 'a check waived when another rule is met'; Expect = @{ Op = 'eq'; Value = 0 }; Raw = 'If WN25-00-000380 is configured, this is not applicable. Value: 0x00000000 (0)'; Want = 'V-1: the check is waived when another rule is met' }
+    ) {
+        @(Get-UnreviewedValue @(Get-RegRule 'V-1' $Expect) @{ 'V-1' = $Raw } @(@{})) | Should -Be @($Want)
+    }
+
+    It 'passes <Case>' -ForEach @(
+        @{ Case = 'one value'; Expect = @{ Op = 'eq'; Value = 1 }; Raw = 'Value: 0x00000001 (1)' }
+        @{ Case = 'several values already read as a list'; Expect = @{ Op = 'in'; Values = @(0, 1) }; Raw = 'Value: 0x00000000 (0), 0x00000001 (1)' }
+        @{ Case = 'a waiver with no other rule named'; Expect = @{ Op = 'eq'; Value = 1 }; Raw = 'If the system writes events to an audit server, this is NA. Value: 0x00000001 (1)' }
+    ) {
+        @(Get-UnreviewedValue @(Get-RegRule 'V-1' $Expect) @{ 'V-1' = $Raw } @(@{})).Count | Should -Be 0
+    }
+
+    It 'takes a correction that sets Expect or NotApplicableIf, and only that, as reviewed' {
+        $rule = Get-RegRule 'V-1' @{ Op = 'eq'; Value = 0 }
+        $raw = @{ 'V-1' = 'If WN25-00-000380 is configured, this is NA. Value: 0x00000000 (0), 0x00000001 (1)' }
+        @(Get-UnreviewedValue @($rule) $raw @(@{ 'V-1' = @{ Expect = @(); NotApplicableIf = @('V-2') } })).Count | Should -Be 0
+        @(Get-UnreviewedValue @($rule) $raw @(@{}, @{ 'V-1' = @{ Expect = @() } })) | Should -Be @('V-1: the check is waived when another rule is met')
+        @(Get-UnreviewedValue @($rule) $raw @(@{ 'V-1' = @{ DomainOnly = $true } })).Count | Should -Be 2
+    }
+}
+
+Describe 'Corrections' {
+    BeforeAll {
+        $script:Fix = "            NamedByText = `$true`n            Corrections = @{`n" +
+            "                'V-900001' = @{ Reason = 'Two values.'; Title = 'EnableLUA (System) in 1/2'; Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\X'; Name = 'EnableLUA'; Op = 'in'; Values = @(1, 2) }) }`n" +
+            "                'V-900016' = @{ Reason = 'NA when SMBv1 is removed.'; NotApplicableIf = @('V-900013', 'V-900001') }`n" +
+            "                'V-900002.a' = @{ Reason = 'Standalone only.'; StandaloneOnly = `$true }`n" +
+            "            }"
+        $maps = Copy-FixtureMapping 'disa-stig.psd1' @{ "            NamedByText = `$true" = $Fix }
+        $script:Run = Invoke-Generator -Framework 'DISA-STIG-Sample' -Mappings $maps
+        $script:Stig = Read-Catalog $Run.Folder 'disa-stig-sample'
+    }
+
+    It "applies on PowerStig's release, without a DISA release" {
+        $r = Get-Requirement $Stig 'V-900001'
+        $r.Title | Should -Be 'EnableLUA (System) in 1/2'
+        @($r.Expect[0].Values) | Should -Be @(1, 2)
+        (Get-Requirement $Stig 'V-900002.a').Expect[0].StandaloneOnly | Should -BeTrue
+    }
+
+    It 'copies the final expectations of the rules a waiver names' {
+        $w = (Get-Requirement $Stig 'V-900016').Expect[0].NotApplicableIf
+        @($w.Rules) | Should -Be @('V-900013', 'V-900001')
+        $w.Expect[0].Source | Should -Be 'Feature'
+        $w.Expect[0].Name | Should -Be 'SMB1Protocol'
+        @($w.Expect[1].Values) | Should -Be @(1, 2)
+        (Get-Requirement $Stig 'V-900013').Expect[0].Contains('NotApplicableIf') | Should -BeFalse
+    }
+
+    It 'refuses a waiver <Case>' -ForEach @(
+        @{ Case = 'on a rule without expectations'; Line = "'V-900005' = @{ NotApplicableIf = @('V-900013') }"; Want = '*waives V-900005*no expectations*' }
+        @{ Case = 'naming a rule without expectations'; Line = "'V-900001' = @{ NotApplicableIf = @('V-900014') }"; Want = '*V-900014 has no expectations*' }
+    ) {
+        $maps = Copy-FixtureMapping 'disa-stig.psd1' @{ "            NamedByText = `$true" = "            NamedByText = `$true`n            Corrections = @{ $Line }" }
+        { Invoke-Generator -Framework 'DISA-STIG-Sample' -Mappings $maps } | Should -Throw $Want
+    }
+}
+
 Describe 'STIG catalog following a DISA release' {
     BeforeAll {
         $script:Run = Invoke-Generator -Framework 'DISA-STIG-Sample' -StigPath $DisaFixture
@@ -646,10 +719,12 @@ Describe "The project's mappings" {
         @($SourceData.PowerStig.Mirrors).Count + [int][bool]$SourceData.PowerStig.Package | Should -BeGreaterThan 1
     }
 
-    It 'give every override a reason' {
+    It 'give every override and correction a reason' {
         foreach ($cat in $StigData.Catalogs) {
-            if (-not $cat.Contains('Overrides')) { continue }
-            foreach ($id in $cat.Overrides.Keys) { $cat.Overrides[$id].Reason | Should -Not -BeNullOrEmpty -Because "$($cat.Id) $id" }
+            foreach ($kind in 'Overrides', 'Corrections') {
+                if (-not $cat.Contains($kind)) { continue }
+                foreach ($id in $cat[$kind].Keys) { $cat[$kind][$id].Reason | Should -Not -BeNullOrEmpty -Because "$($cat.Id) $kind $id" }
+            }
         }
     }
 }

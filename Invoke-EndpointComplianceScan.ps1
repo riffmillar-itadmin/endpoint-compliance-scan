@@ -140,6 +140,11 @@
     0.8.0  2026-10-24  DISA Windows Defender Firewall STIG V2R2. Registry
                        expectations can fall back from the Group Policy value
                        to the local setting (FallbackPath).
+    0.8.1  2026-10-25  STIG fixes from a domain controller scan: SMB1 settings
+                       are NotApplicable when SMB1 is removed (NotApplicableIf),
+                       StandaloneOnly expectations, and DISA's full value lists
+                       for diagnostic data, Delivery Optimization and the
+                       administrator UAC prompt.
 #>
 
 [CmdletBinding()]
@@ -158,7 +163,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.8.0'
+$ComplianceScanVersion = '0.8.1'
 $SnapshotSchemaVersion = 3
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
@@ -339,7 +344,9 @@ function Get-CollectionTarget {
     foreach ($c in $Catalogs) {
         foreach ($r in @($c.Requirements)) {
             if (-not $r.Contains('Expect')) { continue }
-            foreach ($e in @($r.Expect)) {
+            # A waiver's expectations (NotApplicableIf) are read too.
+            $all = @(foreach ($e in @($r.Expect)) { $e; if ($e.Contains('NotApplicableIf')) { @($e.NotApplicableIf.Expect) } })
+            foreach ($e in $all) {
                 switch ("$($e.Source)") {
                     'Registry' {
                         $registry["$($e.Path)\$($e.Name)"] = [pscustomobject]@{ Path = $e.Path; Name = $e.Name }
@@ -1177,10 +1184,23 @@ function Test-UserRight {
 function Test-Expectation {
     # Judges one catalog expectation against the snapshot. Returns a result.
     param($Snapshot, $Expect)
-    if ($Expect.Contains('DomainOnly') -and $Expect.DomainOnly) {
+    $domainOnly = $Expect.Contains('DomainOnly') -and $Expect.DomainOnly
+    $standaloneOnly = $Expect.Contains('StandaloneOnly') -and $Expect.StandaloneOnly
+    if ($domainOnly -or $standaloneOnly) {
         $inDomain = Get-Prop (Get-Prop $Snapshot 'Meta') 'PartOfDomain'
         if ($null -eq $inDomain) { throw 'Snapshot has no Meta.PartOfDomain.' }
-        if (-not $inDomain) { return New-CheckResult NotApplicable 'Applies only to domain-joined systems; this one is not joined to a domain.' }
+        if ($domainOnly -and -not $inDomain) { return New-CheckResult NotApplicable 'Applies only to domain-joined systems; this one is not joined to a domain.' }
+        if ($standaloneOnly -and $inDomain) { return New-CheckResult NotApplicable 'Applies only to systems not joined to a domain; this one is joined to a domain.' }
+    }
+    if ($Expect.Contains('NotApplicableIf')) {
+        # The STIG waives this rule when the other rules it names are met.
+        $waiver = $Expect.NotApplicableIf
+        $met = @(foreach ($e in @($waiver.Expect)) { Invoke-Expectation -Expect $e -Snapshot $Snapshot })
+        if ($met.Count -gt 0 -and @($met | Where-Object { $_.State -ne 'Pass' }).Count -eq 0) {
+            $rules = @($waiver.Rules)
+            $verb = if ($rules.Count -gt 1) { 'are' } else { 'is' }
+            return New-CheckResult NotApplicable "$($rules -join ' and ') $verb met, which the STIG accepts instead."
+        }
     }
     switch ("$($Expect.Source)") {
         'Registry' {
