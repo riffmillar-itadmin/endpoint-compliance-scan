@@ -17,6 +17,8 @@ the script itself doesn't change unless a requirement needs a new named check.
 | `disa-stig-ws2022-ms.psd1`, `disa-stig-ws2022-dc.psd1` | DISA Windows Server 2022 STIG V2R11 (`U_MS_Windows_Server_2022_V2R11_STIG.zip`), member server and domain controller, with automated checks from PowerStig processed STIG 2.8 | All 242 and 271 rules |
 | `disa-stig-ws2025-ms.psd1`, `disa-stig-ws2025-dc.psd1` | DISA Windows Server 2025 STIG V1R4 (`U_MS_Windows_Server_2025_V1R4_STIG.zip`), member server and domain controller, with automated checks from PowerStig processed STIG 1.1 | All 258 and 288 rules; the 12 rules new since V1R1 are Manual |
 | `disa-stig-firewall.psd1` | DISA Windows Defender Firewall with Advanced Security STIG V2R2 (`U_MS_Windows_Defender_Firewall_V2R2_STIG.zip`), with automated checks from PowerStig processed STIG 2.2; applies to any Windows | All 21 rules; the inbound-exceptions rule is Manual |
+| `disa-stig-ad-domain.psd1` | DISA Active Directory Domain STIG V3R8 (`U_Active_Directory_Domain_V3R8_STIG.zip`), with automated checks written for this project; applies to domain controllers | All 36 rules; 16 automated |
+| `disa-stig-ad-forest.psd1` | DISA Active Directory Forest STIG V3R2 (`U_Active_Directory_Forest_V3R2_STIG.zip`), with automated checks written for this project; applies to domain controllers | All 7 rules; 4 automated |
 | `cis-controls-v8.1.psd1` | CIS Critical Security Controls v8.1 | Partial: the 18 IG1/IG2 safeguards an endpoint can show evidence for |
 | `pci-dss-4.0.1.psd1` | PCI DSS v4.0.1 | Partial: the 22 requirements an endpoint can show evidence for |
 | `hipaa-security-rule.psd1` | 45 CFR Part 164, Subpart C | Partial: all of 164.312, plus the endpoint-relevant specifications of 164.308 and 164.310 |
@@ -29,6 +31,13 @@ one (Windows 11, Server 2022 and 2025, and the Firewall), and PowerStig's releas
 otherwise. Where PowerStig's automation keeps one of several allowed values, or
 misses a waiver, a correction in `tools/mappings/disa-stig.psd1` gives the STIG's
 values, with the reason.
+
+PowerStig doesn't process the Active Directory Domain and Forest STIGs, so their
+catalogs come from DISA's zip alone: DISA's rules and severities, with the
+automated rules listed under `Automated` in `tools/mappings/disa-stig.psd1`.
+Those were checked against the release named in `Release`, and the generator
+stops on any other release until a person checks them again. Every other rule
+is Manual.
 
 NIST publications and the HIPAA regulation are US government works. The CIS
 Controls and PCI DSS are copyrighted by their publishers, so their catalogs carry
@@ -93,6 +102,7 @@ Each expectation is one setting with a required value.
 | `UserRight` | `Name` (a right such as `SeNetworkLogonRight`), `Op` (`only` or `includes`), `Identities` | Who holds the right, from `secedit /export`. Needs elevation. Below. |
 | `Service` | `Name`, `StartType` | The service's start type. A service that isn't installed passes. |
 | `Feature` | `Name`, `State = 'Disabled'` | A Windows optional feature, or on Windows Server a role or feature (the `Get-WindowsFeature` name). Installed or enabled fails, including a change waiting on a restart; anything else passes, as does a feature this Windows doesn't offer. Needs elevation. |
+| `Directory` | `Name` (a directory test, below) | Active Directory, read on a domain controller. NotApplicable on any other machine. |
 
 Operators for `Registry` and `SecPol`:
 
@@ -135,6 +145,37 @@ Enterprise Admins), and otherwise by the full account name, such as
 `RESTRICTED SERVICES\PrintSpoolerService`. Domain Admins and Enterprise Admins
 are matched in any domain, and `includes` doesn't require them on a machine
 outside a domain. A holder whose SID no longer resolves fails `only`.
+
+### Directory tests
+
+A `Directory` expectation names one test in the script. Each reads the directory
+snapshot taken on a domain controller. Groups are found by well-known SID, so any
+display language works, and nested membership counts. Only enabled accounts
+count as members.
+
+| `Name` | Fails when | Manual or NotApplicable when |
+| --- | --- | --- |
+| `EnterpriseAdminsSeparate` | an Enterprise Admins member is also in Domain Admins, Schema Admins, Backup Operators or Server Operators | Manual when members exist, to confirm each is a separate, documented account |
+| `DomainAdminsSeparate` | a Domain Admins member is also in Enterprise Admins, Backup Operators or Server Operators | as above |
+| `PrivilegedNotDelegated` | a member of a privileged group isn't marked sensitive and can be delegated | |
+| `ProtectedUsers` | two or more administrative accounts of this domain are outside Protected Users (the STIG allows one) | NotApplicable below the 2012 R2 functional level |
+| `UnconstrainedDelegation` | a computer other than a domain controller is trusted for unconstrained delegation | |
+| `LapsCoverage` | | Manual when an enabled computer has no LAPS password, or the schema has no LAPS attributes |
+| `SmartCardHashRolling` | the domain doesn't roll NTLM secrets of smart card accounts | Manual below the 2016 functional level |
+| `DsrmPasswordAge` | the last DSRM password change (event 4794) is over a year before the scan | Manual when the Security log has no such event |
+| `DomainFunctionalLevel` | the domain functional level is below Windows Server 2016 | |
+| `TrustSidFiltering` | an outgoing external trust isn't quarantined, or a forest trust allows SID history | NotApplicable with no outgoing trust outside the forest |
+| `SelectiveAuthentication` | an outgoing forest trust doesn't use selective authentication | NotApplicable with no outgoing forest trust |
+| `PreWindows2000Access` | Pre-Windows 2000 Compatible Access includes Everyone or Anonymous Logon | |
+| `TrustBuildersAndPolicyCreators` | | Manual when Incoming Forest Trust Builders or Group Policy Creator Owners has members |
+| `InterSiteReplication` | a site link replicates less often than daily | NotApplicable with one site; Manual when a link has a schedule |
+| `DomainControllerCount` | | Manual with one domain controller |
+| `SchemaAdminsEmpty` | Schema Admins has members | NotApplicable outside the forest root domain |
+| `AnonymousForestAccess` | the seventh character of `dSHeuristics` is 2 | |
+| `ForestRootPdcTime` | the forest root PDC emulator's time type isn't NTP | NotApplicable on any other domain controller; Manual otherwise, to confirm the server |
+| `CertificateTemplateApproval` | a published template without manager approval allows smart card logon, any purpose or no EKU, or client authentication with a subject supplied in the request | NotApplicable without an enterprise certificate authority |
+
+The trust tests read the `trustAttributes` bits that MS-ADTS defines.
 
 The test suite checks every catalog's shape, and checks that a snapshot meeting
 every expectation in it passes, so a malformed catalog fails CI rather than a

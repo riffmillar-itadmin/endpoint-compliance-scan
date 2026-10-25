@@ -85,5 +85,17 @@
             Sha256 = '4fd9e65948717c06e00605b11e12958eedde409ac50040958e7c13e7146d25b3'
             Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_Defender_Firewall_V2R2_STIG.zip')
         }
+        @{
+            Benchmark = 'Active_Directory_Domain'
+            Name = 'U_Active_Directory_Domain_V3R8_STIG.zip'
+            Sha256 = '0607519b9a4d913f15ed21dd592baf62e8d186ffba8bc3c524f46f08eb858dde'
+            Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_Active_Directory_Domain_V3R8_STIG.zip')
+        }
+        @{
+            Benchmark = 'Active_Directory_Forest'
+            Name = 'U_Active_Directory_Forest_V3R2_STIG.zip'
+            Sha256 = 'fce2eb549574dab02c0bbde2ea5af8b59f3f1e01a0683db5d406103872defd6a'
+            Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_Active_Directory_Forest_V3R2_STIG.zip')
+        }
     )
 }

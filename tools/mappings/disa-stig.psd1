@@ -82,6 +82,10 @@
     # waived by another rule, until a correction or override sets its Expect or
     # NotApplicableIf.
     #
+    # A catalog without PowerStig is built from DISA's XCCDF alone: Automated gives
+    # each automated rule's Family, Title and Expect, written for this project and
+    # checked against Release; every other rule is Manual.
+    #
     # PolicyFallback joins each rule PowerStig splits into a Group Policy value (.a)
     # and the local setting (.b) into one requirement that reads the local setting
     # only when no policy value exists, as the Firewall STIG's checks do. A catalog
@@ -526,6 +530,53 @@
             Reviewed = @{
                 Release = 'V2R2'
                 Rules = @('V-241990', 'V-241991', 'V-241997', 'V-241998', 'V-241999', 'V-242000', 'V-242001', 'V-242002', 'V-242003', 'V-242006', 'V-242007', 'V-242008')
+            }
+        }
+        @{
+            Id = 'DISA-STIG-AD-Domain'
+            File = 'disa-stig-ad-domain'
+            DisaBenchmark = 'Active_Directory_Domain'
+            Release = 'V3R8'
+            Product = 'Active Directory Domain'
+            AppliesTo = @{ ProductTypes = @(2) }
+            Automated = @{
+                'V-243466' = @{ Family = 'Directory'; Title = 'Enterprise Admins members are in no other administrator group'; Expect = @(@{ Source = 'Directory'; Name = 'EnterpriseAdminsSeparate' }) }
+                'V-243467' = @{ Family = 'Directory'; Title = 'Domain Admins members are in no other administrator group'; Expect = @(@{ Source = 'Directory'; Name = 'DomainAdminsSeparate' }) }
+                'V-243470' = @{ Family = 'Directory'; Title = 'Privileged accounts are sensitive and cannot be delegated'; Expect = @(@{ Source = 'Directory'; Name = 'PrivilegedNotDelegated' }) }
+                'V-243471' = @{ Family = 'Directory'; Title = 'Local administrator passwords are unique (LAPS)'; Expect = @(@{ Source = 'Directory'; Name = 'LapsCoverage' }) }
+                'V-243476' = @{ Family = 'Directory'; Title = 'NT hashes of smart card accounts are rotated'; Expect = @(@{ Source = 'Directory'; Name = 'SmartCardHashRolling' }) }
+                'V-243477' = @{ Family = 'Directory'; Title = 'Administrative accounts are in Protected Users'; Expect = @(@{ Source = 'Directory'; Name = 'ProtectedUsers' }) }
+                'V-243478' = @{ Family = 'Directory'; Title = 'No computer but a domain controller has unconstrained delegation'; Expect = @(@{ Source = 'Directory'; Name = 'UnconstrainedDelegation' }) }
+                'V-243479' = @{ Family = 'Directory'; Title = 'DSRM password changed in the last year'; Expect = @(@{ Source = 'Directory'; Name = 'DsrmPasswordAge' }) }
+                'V-243480' = @{ Family = 'Directory'; Title = 'Domain functional level is Windows Server 2016 or later'; Expect = @(@{ Source = 'Directory'; Name = 'DomainFunctionalLevel' }) }
+                'V-243484' = @{ Family = 'Directory'; Title = 'Trusts filter SIDs from other domains'; Expect = @(@{ Source = 'Directory'; Name = 'TrustSidFiltering' }) }
+                'V-243485' = @{ Family = 'Directory'; Title = 'Outgoing forest trusts use selective authentication'; Expect = @(@{ Source = 'Directory'; Name = 'SelectiveAuthentication' }) }
+                'V-243486' = @{ Family = 'Directory'; Title = 'Pre-Windows 2000 Compatible Access excludes Everyone and Anonymous Logon'; Expect = @(@{ Source = 'Directory'; Name = 'PreWindows2000Access' }) }
+                'V-243487' = @{ Family = 'Directory'; Title = 'Incoming Forest Trust Builders and Group Policy Creator Owners are limited'; Expect = @(@{ Source = 'Directory'; Name = 'TrustBuildersAndPolicyCreators' }) }
+                'V-243497' = @{ Family = 'Directory'; Title = 'Inter-site replication occurs at least daily'; Expect = @(@{ Source = 'Directory'; Name = 'InterSiteReplication' }) }
+                'V-243500' = @{ Family = 'Directory'; Title = 'More than one domain controller supports the domain'; Expect = @(@{ Source = 'Directory'; Name = 'DomainControllerCount' }) }
+                'V-269097' = @{
+                    Family = 'Audit'
+                    Title = 'Kerberos Authentication Service and Kerberos Service Ticket Operations audited: Success and Failure'
+                    Expect = @(
+                        @{ Source = 'Audit'; Subcategory = 'Kerberos Authentication Service'; Setting = 'SuccessAndFailure' }
+                        @{ Source = 'Audit'; Subcategory = 'Kerberos Service Ticket Operations'; Setting = 'SuccessAndFailure' }
+                    )
+                }
+            }
+        }
+        @{
+            Id = 'DISA-STIG-AD-Forest'
+            File = 'disa-stig-ad-forest'
+            DisaBenchmark = 'Active_Directory_Forest'
+            Release = 'V3R2'
+            Product = 'Active Directory Forest'
+            AppliesTo = @{ ProductTypes = @(2) }
+            Automated = @{
+                'V-243502' = @{ Family = 'Directory'; Title = 'Schema Admins has no members outside schema changes'; Expect = @(@{ Source = 'Directory'; Name = 'SchemaAdminsEmpty' }) }
+                'V-243503' = @{ Family = 'Directory'; Title = 'Anonymous access to forest data is disabled (dSHeuristics)'; Expect = @(@{ Source = 'Directory'; Name = 'AnonymousForestAccess' }) }
+                'V-243504' = @{ Family = 'Directory'; Title = 'Forest root PDC emulator takes time from an external NTP source'; Expect = @(@{ Source = 'Directory'; Name = 'ForestRootPdcTime' }) }
+                'V-269098' = @{ Family = 'Directory'; Title = 'Certificate templates that need manager approval require it'; Expect = @(@{ Source = 'Directory'; Name = 'CertificateTemplateApproval' }) }
             }
         }
     )
