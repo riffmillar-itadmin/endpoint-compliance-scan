@@ -780,6 +780,24 @@ Describe 'Active Directory STIGs' {
             Should -Be @('Pass', 'Pass')
     }
 
+    It 'names a well-known SID the directory stores by SID alone (regression: lab scan showed S-1-1-0)' {
+        $bySid = {
+            param($s)
+            Add-DirectoryMember $s ([pscustomobject]@{ Name = 'S-1-1-0'; Sid = 'S-1-1-0' }) 'Pre-Windows 2000 Compatible Access'
+            Add-DirectoryMember $s ([pscustomobject]@{ Name = ''; Sid = 'S-1-5-7' }) 'Pre-Windows 2000 Compatible Access'
+        }
+        Get-AdState $bySid 'V-243486' | Should -Be 'Fail'
+        $finding = Get-AdFinding $bySid 'V-243486'
+        $finding | Should -Match 'includes Everyone and Anonymous Logon\.'
+        $finding | Should -Not -Match 'S-1-'
+        # A named member keeps its own name, and an unknown SID stays as it is.
+        Get-AdFinding { param($s) Add-DirectoryMember $s ([pscustomobject]@{ Name = 'Jeder'; Sid = 'S-1-1-0' }) 'Pre-Windows 2000 Compatible Access' } 'V-243486' |
+            Should -Match 'includes Jeder\.'
+        $s = Get-CompliantSnapshot $AdDomain
+        Add-DirectoryMember $s ([pscustomobject]@{ Name = "$DomainSid-2001"; Sid = "$DomainSid-2001" }) 'Group Policy Creator Owners'
+        @(Get-DirectoryMember $s.Directory 'Group Policy Creator Owners').Name | Should -Be @("$DomainSid-2001")
+    }
+
     It 'allows one administrative account outside Protected Users, not two' {
         Get-AdState { param($s) Add-DirectoryMember $s (Get-TestUser 'Administrator' 500 $true) 'Domain Admins' } 'V-243477' | Should -Be 'Pass'
         Get-AdState {
