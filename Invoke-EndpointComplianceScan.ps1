@@ -149,6 +149,8 @@
     0.9.0  2026-10-25  DISA Active Directory Domain and Forest STIGs, with a
                        directory collector on domain controllers (ADSI, or the
                        ActiveDirectory module). Snapshot schema 4.
+    0.9.1  2026-10-25  Directory findings name well-known SIDs (Everyone,
+                       Anonymous Logon) instead of showing the SID.
 #>
 
 [CmdletBinding()]
@@ -167,7 +169,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.9.0'
+$ComplianceScanVersion = '0.9.1'
 $SnapshotSchemaVersion = 4
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
@@ -1222,12 +1224,24 @@ function Get-DirectoryUser {
     @($seen.Values | Sort-Object Name)
 }
 
+# English names for well-known SIDs. A group holds these as foreign security
+# principals, which the directory names by SID alone (CN=S-1-1-0).
+$WellKnownSidName = @{ 'S-1-1-0' = 'Everyone'; 'S-1-5-7' = 'Anonymous Logon' }
+foreach ($k in $IdentitySid.Keys) {
+    if (-not $IdentitySid[$k].Contains('*')) { $WellKnownSidName[$IdentitySid[$k]] = $k }
+}
+
 function Get-DirectoryMember {
-    # The direct members of one group.
+    # The direct members of one group. A member named only by a well-known SID
+    # takes that SID's English name.
     param($Directory, [string]$Group)
     $entry = Get-Prop (Get-Prop $Directory 'Groups') $Group
     if ($null -eq $entry) { throw "Directory snapshot has no group '$Group'." }
-    @(Get-Prop $entry 'Members' | Where-Object { $null -ne $_ })
+    @(Get-Prop $entry 'Members' | Where-Object { $null -ne $_ } | ForEach-Object {
+            $sid = "$($_.Sid)"
+            $unnamed = ("$($_.Name)" -eq '') -or ("$($_.Name)" -eq $sid)
+            if ($unnamed -and $WellKnownSidName.ContainsKey($sid)) { [pscustomobject]@{ Name = $WellKnownSidName[$sid]; Sid = $sid } } else { $_ }
+        })
 }
 
 function Test-AdminSeparation {
