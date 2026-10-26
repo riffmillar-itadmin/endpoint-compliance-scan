@@ -993,6 +993,49 @@ Describe 'PAW STIG' {
     }
 }
 
+Describe 'Optional feature sources' {
+    BeforeAll {
+        # Linux has neither cmdlet; give Mock something to replace there.
+        $script:AddedStub = @()
+        if (-not (Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue)) {
+            function global:Get-WindowsOptionalFeature { [CmdletBinding()] param([switch]$Online) throw "Not mocked (Online=$Online)." }
+            $script:AddedStub += 'Get-WindowsOptionalFeature'
+        }
+        if (-not (Get-Command Get-CimInstance -ErrorAction SilentlyContinue)) {
+            function global:Get-CimInstance { [CmdletBinding()] param($ClassName) throw "Not mocked ($ClassName)." }
+            $script:AddedStub += 'Get-CimInstance'
+        }
+    }
+    AfterAll {
+        foreach ($name in $script:AddedStub) { Remove-Item "Function:\$name" }
+    }
+
+    It 'reads DISM when it works' {
+        Mock Get-WindowsOptionalFeature { [pscustomobject]@{ FeatureName = 'SMB1Protocol'; State = 'EnablePending' } } -ParameterFilter { $Online }
+        Mock Get-CimInstance { throw 'CIM should not be read when DISM works.' }
+        $f = Get-OptionalFeatureState
+        $f['SMB1Protocol'] | Should -Be 'EnablePending'
+        Should -Invoke Get-CimInstance -Times 0 -Exactly
+    }
+
+    It 'falls back to Win32_OptionalFeature when DISM fails (regression: "Class not registered" under PowerShell 7)' {
+        Mock Get-WindowsOptionalFeature { throw 'Class not registered' }
+        Mock Get-CimInstance {
+            [pscustomobject]@{ Name = 'SMB1Protocol'; InstallState = 2 }
+            [pscustomobject]@{ Name = 'TelnetClient'; InstallState = 1 }
+            [pscustomobject]@{ Name = 'TFTP'; InstallState = 3 }
+            [pscustomobject]@{ Name = 'Odd'; InstallState = 4 }
+        } -ParameterFilter { $ClassName -eq 'Win32_OptionalFeature' }
+        $f = Get-OptionalFeatureState
+        $f['SMB1Protocol'] | Should -Be 'Disabled'
+        $f['TelnetClient'] | Should -Be 'Enabled'
+        $f['TFTP'] | Should -Be 'DisabledWithPayloadRemoved'
+        $f['Odd'] | Should -Be 'Unknown'
+        $FeatureOnStates | Should -Contain $f['TelnetClient']
+        $FeatureOnStates | Should -Not -Contain $f['TFTP']
+    }
+}
+
 Describe 'User rights' {
     BeforeAll {
         function Write-Holder {
