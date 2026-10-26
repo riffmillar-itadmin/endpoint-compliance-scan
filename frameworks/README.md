@@ -19,6 +19,7 @@ the script itself doesn't change unless a requirement needs a new named check.
 | `disa-stig-firewall.psd1` | DISA Windows Defender Firewall with Advanced Security STIG V2R2 (`U_MS_Windows_Defender_Firewall_V2R2_STIG.zip`), with automated checks from PowerStig processed STIG 2.2; applies to any Windows | All 21 rules; the inbound-exceptions rule is Manual |
 | `disa-stig-ad-domain.psd1` | DISA Active Directory Domain STIG V3R8 (`U_Active_Directory_Domain_V3R8_STIG.zip`), with automated checks written for this project; applies to domain controllers | All 36 rules; 16 automated |
 | `disa-stig-ad-forest.psd1` | DISA Active Directory Forest STIG V3R2 (`U_Active_Directory_Forest_V3R2_STIG.zip`), with automated checks written for this project; applies to domain controllers | All 7 rules; 4 automated |
+| `disa-stig-paw.psd1` | DISA Windows Privileged Access Workstation (PAW) STIG V3R3 (`U_MS_Windows_PAW_V3R3_STIG.zip`), with automated checks written for this project; applies to Windows 11 | All 24 rules; 9 with automated evidence |
 | `cis-controls-v8.1.psd1` | CIS Critical Security Controls v8.1 | Partial: the 18 IG1/IG2 safeguards an endpoint can show evidence for |
 | `pci-dss-4.0.1.psd1` | PCI DSS v4.0.1 | Partial: the 22 requirements an endpoint can show evidence for |
 | `hipaa-security-rule.psd1` | 45 CFR Part 164, Subpart C | Partial: all of 164.312, plus the endpoint-relevant specifications of 164.308 and 164.310 |
@@ -32,9 +33,9 @@ otherwise. Where PowerStig's automation keeps one of several allowed values, or
 misses a waiver, a correction in `tools/mappings/disa-stig.psd1` gives the STIG's
 values, with the reason.
 
-PowerStig doesn't process the Active Directory Domain and Forest STIGs, so their
-catalogs come from DISA's zip alone: DISA's rules and severities, with the
-automated rules listed under `Automated` in `tools/mappings/disa-stig.psd1`.
+PowerStig doesn't process the Active Directory Domain and Forest STIGs or the PAW
+STIG, so their catalogs come from DISA's zip alone: DISA's rules and severities,
+with the automated rules listed under `Automated` in `tools/mappings/disa-stig.psd1`.
 Those were checked against the release named in `Release`, and the generator
 stops on any other release until a person checks them again. Every other rule
 is Manual.
@@ -102,6 +103,7 @@ Each expectation is one setting with a required value.
 | `UserRight` | `Name` (a right such as `SeNetworkLogonRight`), `Op` (`only` or `includes`), `Identities` | Who holds the right, from `secedit /export`. Needs elevation. Below. |
 | `Service` | `Name`, `StartType` | The service's start type. A service that isn't installed passes. |
 | `Feature` | `Name`, `State = 'Disabled'` | A Windows optional feature, or on Windows Server a role or feature (the `Get-WindowsFeature` name). Installed or enabled fails, including a change waiting on a restart; anything else passes, as does a feature this Windows doesn't offer. Needs elevation. |
+| `Local` | `Name` (an endpoint test, below) | The sections the test names. |
 | `Directory` | `Name` (a directory test, below) | Active Directory, read on a domain controller. NotApplicable on any other machine. |
 
 Operators for `Registry` and `SecPol`:
@@ -145,6 +147,24 @@ Enterprise Admins), and otherwise by the full account name, such as
 `RESTRICTED SERVICES\PrintSpoolerService`. Domain Admins and Enterprise Admins
 are matched in any domain, and `includes` doesn't require them on a machine
 outside a domain. A holder whose SID no longer resolves fails `only`.
+
+### Endpoint tests
+
+A `Local` expectation names one test in the script, for a rule that reads more
+than one setting or needs judgement.
+
+| `Name` | Reads | Fails when | Manual when |
+| --- | --- | --- | --- |
+| `CodeIntegrityEnforced` | Device Guard | the kernel-mode code integrity policy isn't Enforced (2) | |
+| `UserModeCodeIntegrityEnforced` | Device Guard | the user-mode code integrity policy isn't Enforced (2) | |
+| `PrivilegedGroupsEmpty` | local groups | Backup Operators, Cryptographic Operators, Network Configuration Operators, Power Users, Remote Desktop Users or Replicator has members | only Hyper-V Administrators has members, which the STIG allows on a PAW that runs Hyper-V |
+| `LocalLogonHolders` | user rights | Everyone, Authenticated Users, Users, Guests, Domain Users or Domain Guests holds Allow log on locally | anyone other than Administrators holds it, to confirm each is a designated management group |
+| `LocalAdministrators` | local accounts | | always, listing the members of the local Administrators group |
+| `WindowsVersion` | the snapshot's metadata | | always, giving the Windows edition and version |
+
+Device Guard is read from `Win32_DeviceGuard`; a Windows that doesn't report it
+makes these rules Skipped, never Passed. Local group members are read through CIM,
+falling back to ADSI.
 
 ### Directory tests
 

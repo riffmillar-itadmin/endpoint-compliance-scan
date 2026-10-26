@@ -579,5 +579,24 @@
                 'V-269098' = @{ Family = 'Directory'; Title = 'Certificate templates that need manager approval require it'; Expect = @(@{ Source = 'Directory'; Name = 'CertificateTemplateApproval' }) }
             }
         }
+        @{
+            Id = 'DISA-STIG-PAW'
+            File = 'disa-stig-paw'
+            DisaBenchmark = 'Windows_PAW_STIG'
+            Release = 'V3R3'
+            Product = 'Windows PAW'
+            AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }
+            Automated = @{
+                'V-243447' = @{ Family = 'PAW'; Title = 'Windows 11 version is one the AO approved'; Expect = @(@{ Source = 'Local'; Name = 'WindowsVersion' }) }
+                'V-243450' = @{ Family = 'PAW'; Title = 'Device Guard enforces a kernel-mode code integrity policy'; Expect = @(@{ Source = 'Local'; Name = 'CodeIntegrityEnforced' }) }
+                'V-243451' = @{ Family = 'PAW'; Title = 'Device Guard enforces a user-mode code integrity policy'; Expect = @(@{ Source = 'Local'; Name = 'UserModeCodeIntegrityEnforced' }) }
+                'V-243452' = @{ Family = 'PAW'; Title = 'Allow log on locally: Administrators and groups managing high-value IT resources only'; Expect = @(@{ Source = 'Local'; Name = 'LocalLogonHolders' }) }
+                'V-243455' = @{ Family = 'PAW'; Title = 'Allow log on locally on an AD PAW: Administrators and AD management groups only'; Expect = @(@{ Source = 'Local'; Name = 'LocalLogonHolders' }) }
+                'V-243457' = @{ Family = 'PAW'; Title = 'Interactive logon requires Windows Hello for Business or a smart card'; Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'; Name = 'scforceoption'; Op = 'eq'; Value = 1 }); Note = 'Another DoD-approved two-factor method also meets the rule; record it if this setting is off for that reason.' }
+                'V-243462' = @{ Family = 'PAW'; Title = 'Local Administrators holds only the PAW management group and local administrators'; Expect = @(@{ Source = 'Local'; Name = 'LocalAdministrators' }) }
+                'V-243463' = @{ Family = 'PAW'; Title = 'Local privileged groups other than Administrators are empty'; Expect = @(@{ Source = 'Local'; Name = 'PrivilegedGroupsEmpty' }) }
+                'V-243464' = @{ Family = 'PAW'; Title = 'Restricted remote administration is enforced on the PAW'; Expect = @(@{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation'; Name = 'RestrictedRemoteAdministration'; Op = 'eq'; Value = 1 }); Note = 'Covers the PAW side only. Check DisableRestrictedAdmin = 0 under HKLM\System\CurrentControlSet\Control\Lsa on each high-value system it manages.' }
+            }
+        }
     )
 }

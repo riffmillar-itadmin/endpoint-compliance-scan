@@ -151,6 +151,9 @@
                        ActiveDirectory module). Snapshot schema 4.
     0.9.1  2026-10-25  Directory findings name well-known SIDs (Everyone,
                        Anonymous Logon) instead of showing the SID.
+    0.10.0 2026-10-26  DISA Windows PAW STIG. Device Guard code integrity and
+                       local privileged group collectors, and endpoint tests
+                       for rules that need judgement. Snapshot schema 5.
 #>
 
 [CmdletBinding()]
@@ -169,8 +172,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.9.1'
-$SnapshotSchemaVersion = 4
+$ComplianceScanVersion = '0.10.0'
+$SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
 
@@ -1033,6 +1036,7 @@ function Invoke-Check {
 $ExpectSection = @{
     Registry = 'Registry'; SecPol = 'SecurityPolicy'; Audit = 'AuditPolicy'; UserRight = 'UserRights'
     Service = 'Services'; Feature = 'Features'; Directory = 'Directory'
+    Local = ''   # each endpoint test names its own section, in $LocalTest
 }
 
 # Feature states that leave the feature in place, now or until a restart.
@@ -1425,6 +1429,94 @@ $DirectoryTest = [ordered]@{
     }
 }
 
+# Endpoint tests, by name, for STIG rules that read more than one setting or
+# need judgement: each names the snapshot section it reads (Needs, or none) and
+# returns a result.
+$PawEmptyGroups = [ordered]@{
+    'Backup Operators' = 'S-1-5-32-551'; 'Cryptographic Operators' = 'S-1-5-32-569'
+    'Hyper-V Administrators' = 'S-1-5-32-578'; 'Network Configuration Operators' = 'S-1-5-32-556'
+    'Power Users' = 'S-1-5-32-547'; 'Remote Desktop Users' = 'S-1-5-32-555'; 'Replicator' = 'S-1-5-32-552'
+}
+# Holders of "Allow log on locally" that open a PAW to ordinary users.
+$BroadLogonSid = [ordered]@{
+    'S-1-1-0' = 'Everyone'; 'S-1-5-11' = 'Authenticated Users'; 'S-1-5-32-545' = 'Users'
+    'S-1-5-32-546' = 'Guests'; 'S-1-5-21-*-513' = 'Domain Users'; 'S-1-5-21-*-514' = 'Domain Guests'
+}
+
+function Test-CodeIntegrity {
+    # One Device Guard enforcement status: 2 Enforced, 1 Audit, 0 or unset off.
+    param($S, [string]$Property, [string]$What)
+    $dg = Get-Prop $S 'DeviceGuard'
+    if ($null -eq $dg) { throw 'Snapshot has no DeviceGuard section.' }
+    $v = Get-Prop $dg $Property
+    $text = switch ("$v") { '2' { 'Enforced' } '1' { 'Audit' } '0' { 'Not configured' } '' { 'not reported' } default { "status $v" } }
+    if ("$v" -eq '2') { return New-CheckResult Pass "$What code integrity policy: Enforced." }
+    New-CheckResult Fail "$What code integrity policy: $text ($Property = '$v'); needs Enforced (2)."
+}
+
+$LocalTest = [ordered]@{
+    CodeIntegrityEnforced = @{
+        Needs = 'DeviceGuard'
+        Test  = { param($S) Test-CodeIntegrity $S 'CodeIntegrityPolicyEnforcementStatus' 'Kernel-mode' }
+    }
+    UserModeCodeIntegrityEnforced = @{
+        Needs = 'DeviceGuard'
+        Test  = { param($S) Test-CodeIntegrity $S 'UsermodeCodeIntegrityPolicyEnforcementStatus' 'User-mode' }
+    }
+    PrivilegedGroupsEmpty = @{
+        Needs = 'LocalAccounts'
+        Test  = {
+            param($S)
+            $groups = Get-Prop (Get-Prop $S 'LocalAccounts') 'Groups'
+            if ($null -eq $groups) { throw 'Snapshot has no local group membership (LocalAccounts.Groups).' }
+            $bad = [Collections.Generic.List[string]]::new()
+            $hyperV = @()
+            foreach ($g in $PawEmptyGroups.Keys) {
+                $entry = Get-Prop $groups $g
+                if ($null -eq $entry) { throw "Snapshot has no local group '$g'." }
+                $m = @(Get-Prop $entry 'Members' | Where-Object { $null -ne $_ } | ForEach-Object { "$($_.Name)" })
+                if ($m.Count -eq 0) { continue }
+                if ($g -eq 'Hyper-V Administrators') { $hyperV = $m } else { $bad.Add("$($g): $(Format-NameList $m)") }
+            }
+            if ($bad.Count -gt 0) { return New-CheckResult Fail "Local privileged groups with members: $($bad -join '; ')." }
+            if ($hyperV.Count -gt 0) {
+                return New-CheckResult Manual "Hyper-V Administrators: $(Format-NameList $hyperV); the other local privileged groups are empty." 'Members are allowed only where the PAW runs Hyper-V.'
+            }
+            New-CheckResult Pass "Backup Operators, Cryptographic Operators, Hyper-V Administrators, Network Configuration Operators, Power Users, Remote Desktop Users and Replicator are empty."
+        }
+    }
+    LocalLogonHolders = @{
+        Needs = 'UserRights'
+        Test  = {
+            param($S)
+            $held = @(Get-Prop (Get-Prop $S 'UserRights') 'SeInteractiveLogonRight' | Where-Object { $null -ne $_ })
+            $broad = @(foreach ($e in $held) {
+                    foreach ($k in $BroadLogonSid.Keys) { if ("$($e.Sid)" -like $k) { "$($e.Name)"; break } }
+                })
+            if ($broad.Count -gt 0) { return New-CheckResult Fail "Allow log on locally includes $($broad -join ', ')." }
+            $others = @($held | Where-Object { "$($_.Sid)" -ne 'S-1-5-32-544' } | ForEach-Object { "$($_.Name)" })
+            if ($others.Count -eq 0) { return New-CheckResult Pass 'Allow log on locally is held by Administrators only.' }
+            New-CheckResult Manual "Allow log on locally: Administrators and $(Format-NameList $others)." 'Confirm each is a group designated to manage the high-value IT resources this PAW serves.'
+        }
+    }
+    LocalAdministrators = @{
+        Needs = 'LocalAccounts'
+        Test  = {
+            param($S)
+            $m = @(Get-Prop (Get-Prop $S 'LocalAccounts') 'Administrators' | Where-Object { $_ })
+            New-CheckResult Manual "Local Administrators: $(Format-NameList $m)." 'Confirm the only members are the group designated to manage this PAW and the local administrator account.'
+        }
+    }
+    WindowsVersion = @{
+        Needs = ''
+        Test  = {
+            param($S)
+            $meta = Get-Prop $S 'Meta'
+            New-CheckResult Manual "$(Get-Prop $meta 'OSCaption'), version $(Get-Prop $meta 'OSVersion')." 'Confirm this is a Windows 11 version the AO has approved for PAWs.'
+        }
+    }
+}
+
 function Test-Expectation {
     # Judges one catalog expectation against the snapshot. Returns a result.
     param($Snapshot, $Expect)
@@ -1501,6 +1593,10 @@ function Test-Expectation {
             if (-not $DirectoryTest.Contains("$($Expect.Name)")) { throw "Unknown directory test '$($Expect.Name)'." }
             return & $DirectoryTest["$($Expect.Name)"] $d $Snapshot
         }
+        'Local' {
+            if (-not $LocalTest.Contains("$($Expect.Name)")) { throw "Unknown endpoint test '$($Expect.Name)'." }
+            return & $LocalTest["$($Expect.Name)"].Test $Snapshot
+        }
         default { throw "Unknown expectation source '$($Expect.Source)'." }
     }
     $ev = "$label = $actual"
@@ -1516,6 +1612,7 @@ function Invoke-Expectation {
     param($Expect, $Snapshot)
     $label = Get-ExpectLabel $Expect
     $section = $ExpectSection["$($Expect.Source)"]
+    if ("$($Expect.Source)" -eq 'Local' -and $LocalTest.Contains("$($Expect.Name)")) { $section = $LocalTest["$($Expect.Name)"].Needs }
     $definition = @{
         Title  = $label
         Expect = $Expect
@@ -1871,6 +1968,35 @@ function ConvertTo-IdentityEntry {
         }
     }
     [ordered]@{ Sid = $sid; Name = $name }
+}
+
+function Get-LocalGroupMemberList {
+    # Direct members of one local group, by its well-known SID: CIM first, then
+    # ADSI (WinNT), which also lists members whose account no longer resolves.
+    param([string]$Sid)
+    try {
+        $g = Get-CimInstance -ClassName Win32_Group -Filter "LocalAccount=True AND SID='$Sid'" -ErrorAction Stop
+        if ($null -eq $g) { return [ordered]@{ Found = $false; Members = @() } }
+        $m = @(Get-CimAssociatedInstance -InputObject $g -Association Win32_GroupUser -ErrorAction Stop | ForEach-Object {
+                [ordered]@{ Name = "$($_.Domain)\$($_.Name)"; Sid = "$($_.SID)" }
+            })
+        return [ordered]@{ Found = $true; Members = $m }
+    } catch {
+        Write-Verbose "CIM membership of $Sid failed; trying ADSI: $($_.Exception.Message)"
+    }
+    try {
+        $name = ([Security.Principal.SecurityIdentifier]::new($Sid)).Translate([Security.Principal.NTAccount]).Value.Split('\')[-1]
+    } catch {
+        Write-Verbose "No local group with SID $($Sid): $($_.Exception.Message)"
+        return [ordered]@{ Found = $false; Members = @() }
+    }
+    $group = [adsi]"WinNT://$env:COMPUTERNAME/$name,group"
+    $m = @(foreach ($member in @($group.Invoke('Members'))) {
+            $path = "$($member.GetType().InvokeMember('ADsPath', 'GetProperty', $null, $member, $null))"
+            $bytes = $member.GetType().InvokeMember('objectSid', 'GetProperty', $null, $member, $null)
+            [ordered]@{ Name = ($path -replace '^WinNT://', '' -replace '/', '\'); Sid = ConvertTo-SidText ([byte[]]$bytes) }
+        })
+    [ordered]@{ Found = $true; Members = $m }
 }
 
 function ConvertTo-SidText {
@@ -2256,7 +2382,24 @@ function Get-EndpointSnapshot {
         })
         $group = Get-CimInstance -ClassName Win32_Group -Filter "LocalAccount=True AND SID='S-1-5-32-544'"
         $admins = @(Get-CimAssociatedInstance -InputObject $group -Association Win32_GroupUser | ForEach-Object { "$($_.Domain)\$($_.Name)" })
-        [ordered]@{ Users = $users; Administrators = $admins }
+        $groups = [ordered]@{}
+        foreach ($g in $PawEmptyGroups.Keys) { $groups[$g] = Get-LocalGroupMemberList $PawEmptyGroups[$g] }
+        [ordered]@{ Users = $users; Administrators = $admins; Groups = $groups }
+    }
+
+    Invoke-Collector $snap 'DeviceGuard' $elevated {
+        $dg = $null
+        try {
+            $dg = Get-CimInstance -Namespace 'root/Microsoft/Windows/DeviceGuard' -ClassName Win32_DeviceGuard -ErrorAction Stop
+        } catch {
+            Write-Verbose "Win32_DeviceGuard not available: $($_.Exception.Message)"
+        }
+        if ($null -eq $dg) { throw [System.NotSupportedException]::new('This Windows does not report Device Guard (Win32_DeviceGuard).') }
+        [ordered]@{
+            CodeIntegrityPolicyEnforcementStatus         = [int](Get-Prop $dg 'CodeIntegrityPolicyEnforcementStatus')
+            UsermodeCodeIntegrityPolicyEnforcementStatus = [int](Get-Prop $dg 'UsermodeCodeIntegrityPolicyEnforcementStatus')
+            VirtualizationBasedSecurityStatus            = [int](Get-Prop $dg 'VirtualizationBasedSecurityStatus')
+        }
     }
 
     Invoke-Collector $snap 'Directory' $elevated {

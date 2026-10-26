@@ -81,7 +81,7 @@ jobs:
       - name: Evaluate the snapshot against every framework
         shell: cmd
         run: |
-          for %%F in (CMMC NIST-800-171r3 NIST-800-53r5 NIST-CSF-2.0 DISA-STIG-Win11 DISA-STIG-WS2019-MS DISA-STIG-WS2019-DC DISA-STIG-WS2022-MS DISA-STIG-WS2022-DC DISA-STIG-WS2025-MS DISA-STIG-WS2025-DC DISA-STIG-Firewall DISA-STIG-AD-Domain DISA-STIG-AD-Forest CIS-v8.1 PCI-DSS-4.0.1 HIPAA) do (
+          for %%F in (CMMC NIST-800-171r3 NIST-800-53r5 NIST-CSF-2.0 DISA-STIG-Win11 DISA-STIG-WS2019-MS DISA-STIG-WS2019-DC DISA-STIG-WS2022-MS DISA-STIG-WS2022-DC DISA-STIG-WS2025-MS DISA-STIG-WS2025-DC DISA-STIG-Firewall DISA-STIG-AD-Domain DISA-STIG-AD-Forest DISA-STIG-PAW CIS-v8.1 PCI-DSS-4.0.1 HIPAA) do (
             ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\Invoke-EndpointComplianceScan.ps1 -Framework %%F -FromSnapshot "%RUNNER_TEMP%\runner.snapshot.json" -OutputPath "%RUNNER_TEMP%\scan"
             if errorlevel 2 exit /b 1
           )
