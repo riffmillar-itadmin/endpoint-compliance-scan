@@ -154,6 +154,8 @@
     0.10.0 2026-10-26  DISA Windows PAW STIG. Device Guard code integrity and
                        local privileged group collectors, and endpoint tests
                        for rules that need judgement. Snapshot schema 5.
+    0.10.1 2026-10-26  Optional features fall back to CIM (Win32_OptionalFeature)
+                       when DISM fails, as it can under PowerShell 7.
 #>
 
 [CmdletBinding()]
@@ -172,7 +174,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.10.0'
+$ComplianceScanVersion = '0.10.1'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
@@ -1970,6 +1972,32 @@ function ConvertTo-IdentityEntry {
     [ordered]@{ Sid = $sid; Name = $name }
 }
 
+function ConvertFrom-OptionalFeatureInstallState {
+    # Win32_OptionalFeature.InstallState as the state name DISM reports. CIM has
+    # no pending states, so a change waiting on a restart shows its old state.
+    param($InstallState)
+    switch ("$InstallState") { '1' { 'Enabled' } '2' { 'Disabled' } '3' { 'DisabledWithPayloadRemoved' } default { 'Unknown' } }
+}
+
+function Get-OptionalFeatureState {
+    # Optional features by name: DISM's Get-WindowsOptionalFeature first, then
+    # CIM (Win32_OptionalFeature), for a PowerShell where the DISM module fails
+    # (for example "Class not registered" under PowerShell 7).
+    $all = @{}
+    if (Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue) {
+        try {
+            foreach ($f in @(Get-WindowsOptionalFeature -Online -ErrorAction Stop)) { $all["$($f.FeatureName)"] = "$($f.State)" }
+            return $all
+        } catch {
+            Write-Verbose "Get-WindowsOptionalFeature failed; reading Win32_OptionalFeature: $($_.Exception.Message)"
+        }
+    }
+    foreach ($f in @(Get-CimInstance -ClassName Win32_OptionalFeature -ErrorAction Stop)) {
+        $all["$($f.Name)"] = ConvertFrom-OptionalFeatureInstallState $f.InstallState
+    }
+    $all
+}
+
 function Get-LocalGroupMemberList {
     # Direct members of one local group, by its well-known SID: CIM first, then
     # ADSI (WinNT), which also lists members whose account no longer resolves.
@@ -2292,14 +2320,7 @@ function Get-EndpointSnapshot {
     Invoke-Collector $snap 'Features' $elevated -RequiresAdmin {
         # Optional features (DISM) on every Windows, plus roles and features
         # (ServerManager) on Windows Server, where the Server STIGs name them.
-        $all = @{}
-        $hasOptional = [bool](Get-Command Get-WindowsOptionalFeature -ErrorAction SilentlyContinue)
-        if (-not $hasOptional -and $snap.Meta.ProductType -eq 1) {
-            throw [System.NotSupportedException]::new('Get-WindowsOptionalFeature is not available.')
-        }
-        if ($hasOptional) {
-            foreach ($f in @(Get-WindowsOptionalFeature -Online)) { $all["$($f.FeatureName)"] = "$($f.State)" }
-        }
+        $all = Get-OptionalFeatureState
         if ($snap.Meta.ProductType -ne 1) {
             # PowerShell 7 loads ServerManager through its Windows PowerShell
             # compatibility session and warns that it does; the warning is expected.
