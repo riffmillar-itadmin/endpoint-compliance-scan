@@ -19,6 +19,7 @@ evidence for each requirement.
 | DISA Windows Defender Firewall STIG V2R2, any Windows | `DISA-STIG-Firewall` | CAT I, CAT II, CAT III | 21 | 20 |
 | DISA Active Directory Domain STIG V3R8, on a domain controller | `DISA-STIG-AD-Domain` | CAT I, CAT II, CAT III | 36 | 16 |
 | DISA Active Directory Forest STIG V3R2, on a domain controller | `DISA-STIG-AD-Forest` | CAT I, CAT II, CAT III | 7 | 4 |
+| DISA Windows PAW STIG V3R3, Windows 11 privileged access workstation | `DISA-STIG-PAW` | CAT I, CAT II, CAT III | 24 | 9 |
 | [CIS Controls v8.1](https://www.cisecurity.org/controls/v8-1), endpoint safeguards | `CIS-v8.1` | IG1, IG2 | 18 (partial) | 18 |
 | [NIST Cybersecurity Framework 2.0](https://www.nist.gov/cyberframework) | `NIST-CSF-2.0` | CSF | 106 | 11 |
 | [PCI DSS v4.0.1](https://www.pcisecuritystandards.org/document_library/), endpoint requirements | `PCI-DSS-4.0.1` | PCI | 22 (partial) | 22 |
@@ -50,6 +51,7 @@ separate one for domain controllers. Pick the one that matches the machine:
 | Windows Server 2019, 2022 or 2025, domain controller | `DISA-STIG-WS2019-DC`, `DISA-STIG-WS2022-DC`, `DISA-STIG-WS2025-DC` |
 | Any of these, for its firewall (in addition to the release's STIG) | `DISA-STIG-Firewall` |
 | A domain controller, for its domain and forest (in addition to the release's STIG) | `DISA-STIG-AD-Domain`, `DISA-STIG-AD-Forest` |
+| A Windows 11 privileged access workstation (PAW), in addition to `DISA-STIG-Win11` | `DISA-STIG-PAW` |
 
 `winver` or `(Get-CimInstance Win32_OperatingSystem).Caption` shows the release.
 Each operating system STIG catalog names the edition and build it was written
@@ -77,11 +79,18 @@ any other machine those rules are NotApplicable. A rule that names a person's
 judgement, such as whether each administrator account is documented, is Manual
 with the accounts it found listed in the evidence.
 
+The PAW STIG is mostly about how a site runs its PAWs: training, administrative
+tiers, and which systems are managed from which PAW. Those 15 rules are Manual.
+The scan checks Device Guard code integrity enforcement, the local privileged
+groups, who may log on locally, smart card logon and restricted remote
+administration, and lists the local Administrators and the Windows version for
+review.
+
 ## What it changes
 
 Nothing. It reads the registry, security policy, user rights, audit policy,
-services, Windows features, firewall, Defender, BitLocker, local accounts and
-installed updates, and on a domain controller Active Directory, which it reads
+services, Windows features, firewall, Defender, BitLocker, Device Guard, local
+accounts and groups, and installed updates, and on a domain controller Active Directory, which it reads
 from that domain controller itself (localhost). It makes no other network calls.
 Its only side effects are
 temporary files (the `secedit` and `auditpol` exports), deleted as soon as they
@@ -221,8 +230,8 @@ A requirement gets its evidence from two places.
 
 **Setting expectations** in the catalog, for rules that are a single setting:
 a registry value, a security policy value, an audit subcategory, a user right, a
-service's start type, a Windows feature, or on a domain controller a named
-directory test. Most of the STIGs' automated rules are these.
+service's start type, a Windows feature, a named endpoint test, or on a domain
+controller a named directory test. Most of the STIGs' automated rules are these.
 
 User rights are matched by SID, so the result is the same in any Windows display
 language. Domain Admins and Enterprise Admins are required only on a machine in
@@ -297,7 +306,7 @@ keeps one), or a check DISA waives when another rule is met. A correction in the
 mappings settles each one.
 `-StigPath` tries a newer DISA release before it is pinned.
 
-PowerStig doesn't process the Active Directory STIGs, so their catalogs are
+PowerStig doesn't process the Active Directory or PAW STIGs, so their catalogs are
 built from DISA's zip alone. Their automation is written in the mappings, along
 with the release it was checked against. A newer DISA release stops the build
 until a person checks each automated rule against it.
@@ -306,6 +315,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.10.0 | 2026-10-26 | DISA Windows PAW STIG V3R3 as `DISA-STIG-PAW`, for Windows 11 privileged access workstations: 24 rules, 7 automated and 2 with evidence for review. New Device Guard collector (code integrity enforcement), and the local accounts collector also records the members of the local privileged groups, through CIM with an ADSI fallback. A new `Local` expectation source runs named endpoint tests for rules that read more than one setting or need judgement. Snapshot schema 5. |
 | 0.9.1 | 2026-10-25 | Directory findings name a well-known SID group member, such as Everyone or Anonymous Logon, instead of showing its SID. The directory stores these members as foreign security principals named only by SID, so a lab domain controller scan reported "includes S-1-1-0". Saved snapshots show the names too, since the names are applied when the snapshot is evaluated. |
 | 0.9.0 | 2026-10-25 | DISA Active Directory Domain STIG V3R8 (`DISA-STIG-AD-Domain`, 36 rules, 16 automated) and Forest STIG V3R2 (`DISA-STIG-AD-Forest`, 7 rules, 4 automated), for domain controllers. A new directory collector reads Active Directory through ADSI, falling back to the ActiveDirectory module, and is NotApplicable on any machine that isn't a domain controller. It checks administrator group separation, accounts that can be delegated, Protected Users, unconstrained delegation, trusts (SID filtering and selective authentication), Pre-Windows 2000 Compatible Access, Schema Admins, LAPS coverage, smart card hash rolling, the DSRM password age, the functional level, inter-site replication, anonymous forest access, the forest root time source and certificate templates. These use a new `Directory` expectation source. Snapshot schema 4. The catalog generator builds a STIG catalog from DISA's zip alone, with automation from the mappings pinned to the release it was checked against. |
 | 0.8.1 | 2026-10-25 | STIG fixes found by scanning a lab domain controller. The SMB1 registry settings are NotApplicable when the SMB1 feature is removed, and SMB1 removal is NotApplicable when both settings are made, as DISA's checks say, on Windows 11 and Server 2019, 2022 and 2025. This uses a new `NotApplicableIf` expectation key. Diagnostic data (`AllowTelemetry`) accepts DISA's values: 0 or 1 on Windows 11 and Server 2025 (Server 2025 had expected an empty value), and 1 or 3 on Server 2022. Delivery Optimization accepts 0, 1, 2, 99 or 100 on Windows 11 and Server 2025. The Server 2025 administrator UAC prompt accepts 1 or 2. On Windows 11, Windows Analytics diagnostic data is NotApplicable when diagnostic data is Security or Basic. Its Settings-based Delivery Optimization value applies only off a domain, through a new `StandaloneOnly` key. The catalog generator applies corrections whatever release a catalog follows. It stops on a value nobody has reviewed. |

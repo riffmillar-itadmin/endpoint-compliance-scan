@@ -97,5 +97,11 @@
             Sha256 = 'fce2eb549574dab02c0bbde2ea5af8b59f3f1e01a0683db5d406103872defd6a'
             Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_Active_Directory_Forest_V3R2_STIG.zip')
         }
+        @{
+            Benchmark = 'Windows_PAW_STIG'
+            Name = 'U_MS_Windows_PAW_V3R3_STIG.zip'
+            Sha256 = 'b29b94a8e6daf0eb37b6100d9e3ad248d8c8155ca6c917ac5cd6b8fe09eab0be'
+            Urls = @('https://dl.dod.cyber.mil/wp-content/uploads/stigs/zip/U_MS_Windows_PAW_V3R3_STIG.zip')
+        }
     )
 }

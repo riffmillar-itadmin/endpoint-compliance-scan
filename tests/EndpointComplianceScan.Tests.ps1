@@ -105,6 +105,10 @@ BeforeAll {
                     }
                     'Service' { Write-Fact $s.Services $e.Name ([pscustomobject]@{ Present = $true; StartType = $e.StartType; Status = 'Stopped' }) }
                     'Feature' { Write-Fact $s.Features $e.Name ([pscustomobject]@{ Present = $true; State = $e.State }) }
+                    'Local' {
+                        # A PAW allows local logon to Administrators and designated groups only.
+                        if ($e.Name -eq 'LocalLogonHolders') { Write-Fact $s.UserRights 'SeInteractiveLogonRight' @(Get-IdentityEntry 'Administrators') }
+                    }
                 }
             }
         }
@@ -180,6 +184,7 @@ Describe 'Every framework catalog: <Id>' -ForEach $script:FrameworkCases {
                     'Service' { $e.StartType | Should -BeIn 'Disabled', 'Manual', 'Automatic' -Because $because }
                     'Feature' { $e.State | Should -Be 'Disabled' -Because $because }
                     'Directory' { @($DirectoryTest.Keys) | Should -Contain $e.Name -Because $because }
+                    'Local' { @($LocalTest.Keys) | Should -Contain $e.Name -Because $because }
                     'UserRight' {
                         $e.Name | Should -Match '^Se\w+(Privilege|Right)$' -Because $because
                         $e.Op | Should -BeIn 'only', 'includes' -Because $because
@@ -251,6 +256,7 @@ Describe 'Framework catalogs' {
         @{ Id = 'DISA-STIG-Firewall'; Count = 21 }
         @{ Id = 'DISA-STIG-AD-Domain'; Count = 36 }
         @{ Id = 'DISA-STIG-AD-Forest'; Count = 7 }
+        @{ Id = 'DISA-STIG-PAW'; Count = 24 }
     ) {
         @((Get-Framework $Id).Requirements).Count | Should -Be $Count
         (Get-Framework $Id).Complete | Should -BeTrue
@@ -889,6 +895,101 @@ Describe 'Active Directory STIGs' {
         $s.Directory.Groups.PSObject.Properties.Remove('Schema Admins')
         $e = Invoke-Evaluation $s -Thresholds (Get-Threshold $AdForest) -Level $null -For $AdForest
         ($e.Requirements | Where-Object Requirement -eq 'V-243502').State | Should -Be 'Error'
+    }
+}
+
+Describe 'PAW STIG' {
+    BeforeAll {
+        $script:Paw = Get-Framework 'DISA-STIG-PAW'
+        function Get-PawResult {
+            # The named requirement's result, from the PAW catalog, after $Mutate.
+            param([scriptblock]$Mutate, [string]$Id)
+            $s = Get-CompliantSnapshot $Paw
+            & $Mutate $s
+            $e = Invoke-Evaluation $s -Thresholds (Get-Threshold $Paw) -Level $null -For $Paw
+            $e.Requirements | Where-Object Requirement -eq $Id
+        }
+        function Write-GroupMember {
+            param($Snapshot, [string]$Group, [string[]]$Name)
+            $Snapshot.LocalAccounts.Groups.$Group.Members = @($Name | ForEach-Object { [pscustomobject]@{ Name = $_; Sid = "S-1-5-21-1000000001-1000000002-1000000003-$(1100 + $Name.IndexOf($_))" } })
+        }
+        function Write-LogonRight {
+            param($Snapshot, [object[]]$Entry)
+            $Snapshot.UserRights.SeInteractiveLogonRight = @($Entry | ForEach-Object { [pscustomobject]@{ Sid = $_[0]; Name = $_[1] } })
+        }
+    }
+
+    It 'passes a PAW that meets every automated rule, and leaves the version and Administrators to review' {
+        foreach ($id in 'V-243450', 'V-243451', 'V-243452', 'V-243455', 'V-243457', 'V-243463', 'V-243464') {
+            (Get-PawResult {} $id).State | Should -Be 'Pass' -Because $id
+        }
+        foreach ($id in 'V-243447', 'V-243462') { (Get-PawResult {} $id).State | Should -Be 'Manual' -Because $id }
+        (Get-PawResult {} 'V-243447').Evidence | Should -Match 'Windows 11 Pro, version 10\.0\.26100'
+        (Get-PawResult {} 'V-243462').Evidence | Should -Match 'WESTMARK\\Domain Admins'
+    }
+
+    It 'judges <Property> = <Value> as <Want>' -ForEach @(
+        @{ Property = 'CodeIntegrityPolicyEnforcementStatus'; Id = 'V-243450'; Value = 1; Want = 'Fail'; Text = 'Audit' }
+        @{ Property = 'CodeIntegrityPolicyEnforcementStatus'; Id = 'V-243450'; Value = 0; Want = 'Fail'; Text = 'Not configured' }
+        @{ Property = 'UsermodeCodeIntegrityPolicyEnforcementStatus'; Id = 'V-243451'; Value = 1; Want = 'Fail'; Text = 'Audit' }
+        @{ Property = 'UsermodeCodeIntegrityPolicyEnforcementStatus'; Id = 'V-243451'; Value = 2; Want = 'Pass'; Text = 'Enforced' }
+    ) {
+        $r = Get-PawResult { param($s) $s.DeviceGuard.$Property = $Value } $Id
+        $r.State | Should -Be $Want
+        $r.Evidence | Should -Match $Text
+    }
+
+    It 'fails a member of a local privileged group, and leaves Hyper-V Administrators to review' {
+        $r = Get-PawResult { param($s) Write-GroupMember $s 'Remote Desktop Users' 'WESTMARK\helpdesk' } 'V-243463'
+        $r.State | Should -Be 'Fail'
+        $r.Evidence | Should -Match 'Remote Desktop Users: WESTMARK\\helpdesk'
+        (Get-PawResult { param($s) Write-GroupMember $s 'Hyper-V Administrators' 'WESTMARK-PC01\tech01' } 'V-243463').State | Should -Be 'Manual'
+        (Get-PawResult { param($s) Write-GroupMember $s 'Hyper-V Administrators' 'A'; Write-GroupMember $s 'Power Users' 'B' } 'V-243463').State | Should -Be 'Fail'
+    }
+
+    It 'fails Allow log on locally held by <Name>' -ForEach @(
+        @{ Sid = 'S-1-5-32-545'; Name = 'BUILTIN\Users' }
+        @{ Sid = 'S-1-1-0'; Name = 'Everyone' }
+        @{ Sid = 'S-1-5-11'; Name = 'NT AUTHORITY\Authenticated Users' }
+        @{ Sid = 'S-1-5-21-1000000011-1000000012-1000000013-513'; Name = 'WESTMARK\Domain Users' }
+    ) {
+        $entry = @(, @('S-1-5-32-544', 'BUILTIN\Administrators')) + @(, @($Sid, $Name))
+        foreach ($id in 'V-243452', 'V-243455') {
+            $r = Get-PawResult { param($s) Write-LogonRight $s $entry } $id
+            $r.State | Should -Be 'Fail' -Because $id
+            $r.Evidence | Should -Match ([regex]::Escape($Name))
+        }
+    }
+
+    It 'leaves a designated management group with Allow log on locally to review' {
+        $entry = @(, @('S-1-5-32-544', 'BUILTIN\Administrators')) + @(, @('S-1-5-21-1000000011-1000000012-1000000013-2101', 'WESTMARK\Tier0-Admins'))
+        $r = Get-PawResult { param($s) Write-LogonRight $s $entry } 'V-243455'
+        $r.State | Should -Be 'Manual'
+        $r.Evidence | Should -Match 'Tier0-Admins'
+    }
+
+    It 'fails the smart card and restricted admin settings when unset' {
+        (Get-PawResult { param($s) Write-RegFact $s "$Sys\scforceoption" $null } 'V-243457').State | Should -Be 'Fail'
+        (Get-PawResult { param($s) Write-RegFact $s 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\CredentialsDelegation\RestrictedRemoteAdministration' 0 } 'V-243464').State | Should -Be 'Fail'
+        (Get-PawResult {} 'V-243464').Note | Should -Match 'DisableRestrictedAdmin'
+    }
+
+    It 'skips the code integrity rules, never passes them, when Device Guard is not reported' {
+        $r = Get-PawResult {
+            param($s)
+            $s.Collection.DeviceGuard.Status = 'Skipped'
+            $s.Collection.DeviceGuard.Reason = 'This Windows does not report Device Guard (Win32_DeviceGuard).'
+            $s.DeviceGuard = $null
+        } 'V-243450'
+        $r.State | Should -Be 'Skipped'
+    }
+
+    It 'errors the local group rule on a snapshot without local group membership' {
+        (Get-PawResult { param($s) $s.LocalAccounts.PSObject.Properties.Remove('Groups') } 'V-243463').State | Should -Be 'Error'
+    }
+
+    It 'errors an expectation that names an endpoint test the scanner does not have' {
+        (Test-ExpectOn @{ Source = 'Local'; Name = 'NoSuchTest' }).State | Should -Be 'Error'
     }
 }
 
