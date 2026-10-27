@@ -1630,6 +1630,58 @@ Describe 'Collector progress' {
     }
 }
 
+Describe 'Console output' {
+    It 'wraps between words, never inside one (regression: the launch line broke "a l" / "arge")' {
+        $text = 'Scanning WESTMARK-PC01 for DISA Windows PAW STIG V3R3. This usually takes 2 to 5 minutes, longer on a domain controller with a large directory, and changes nothing on the machine.'
+        $lines = Format-WrappedText $text 60 4
+        $lines.Count | Should -BeGreaterThan 2
+        foreach ($l in $lines) { $l.Length | Should -BeLessOrEqual 60 }
+        foreach ($l in $lines[1..($lines.Count - 1)]) { $l | Should -Match '^    \S' }
+        (($lines | ForEach-Object { $_.Trim() }) -join ' ') | Should -Be $text
+    }
+
+    It 'keeps padded columns aligned on the first line' {
+        $lines = Format-WrappedText ('{0,-8} {1,-14} {2}' -f 'Fail', 'V-243457', 'Registry:scforceoption: scforceoption = 0; needs 1.') 50 24
+        $lines | Should -Be @(
+            'Fail     V-243457       Registry:scforceoption:'
+            '                        scforceoption = 0; needs'
+            '                        1.'
+        )
+    }
+
+    It 'leaves text on one line when there is no console width' {
+        $lines = Format-WrappedText 'one two three' 0 4
+        @($lines).Count | Should -Be 1
+        $lines[0] | Should -Be 'one two three'
+    }
+
+    It 'puts a word longer than the line on its own line rather than splitting it' {
+        $path = 'C:\Reports\compliance-scan-WESTMARK-PC01-20261020T150000Z-disa-stig-paw.records.json'
+        $lines = Format-WrappedText "Reports: $path done" 30 2
+        $lines | Should -Contain "  $path"
+    }
+
+    It 'sets the launch notice apart and warns about elevation only when not elevated' {
+        $fw = Get-Framework 'DISA-STIG-PAW'
+        $out = @(Write-ScanBanner -Computer 'WESTMARK-PC01' -Catalog $fw -Elevated $true 6>&1 | ForEach-Object { "$_" })
+        $out[0] | Should -Be ''
+        $out[1] | Should -Be "Endpoint compliance scan $ComplianceScanVersion"
+        $out | Should -Contain "  Scanning   WESTMARK-PC01 for $($fw.Name)"
+        ($out -join "`n") | Should -Match 'Usually 2 to 5 minutes'
+        ($out -join "`n") | Should -Not -Match 'Elevation'
+        $out[-1] | Should -Be ''
+        $low = @(Write-ScanBanner -Computer 'WESTMARK-PC01' -Catalog $fw -Elevated $false 6>&1 | ForEach-Object { "$_" })
+        ($low -join "`n") | Should -Match 'Elevation  Not elevated: checks that need it will be Skipped'
+    }
+
+    It 'lists the report files one per line under their folder' {
+        $folder = Join-Path $TestDrive 'r'
+        $files = @((Join-Path $folder 'a.csv'), (Join-Path $folder 'a.html'))
+        $out = @(Write-ReportList $files 6>&1 | ForEach-Object { "$_" })
+        $out | Should -Be @("Reports in ${folder}:", '  a.csv', '  a.html')
+    }
+}
+
 Describe 'Exit codes' {
     It 'gives <Want> for <States>' -ForEach @(
         @{ States = @('Pass', 'Manual'); Want = 0 }

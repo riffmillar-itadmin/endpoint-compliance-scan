@@ -163,6 +163,10 @@
     0.11.0 2026-10-27  Accepted deviations, listed with a reason in the local
                        settings file, report as Accepted instead of Fail.
                        Progress per collector and a time estimate at launch.
+    0.11.1 2026-10-27  Console output: the launch notice and the results
+                       header are short blocks set apart in colour, notes
+                       and findings wrap between words to the window, and
+                       the report files are listed one per line.
 #>
 
 [CmdletBinding()]
@@ -181,7 +185,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.11.0'
+$ComplianceScanVersion = '0.11.1'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }
@@ -2608,21 +2612,112 @@ function Get-EndpointSnapshot {
 
 #region Report
 
+function Get-ConsoleWidth {
+    # Columns in the console window, or 0 when there is none to fit (a
+    # scheduled task, a CI log, output redirected to a file).
+    try {
+        if ([Console]::IsOutputRedirected) { return 0 }
+        return [int]$Host.UI.RawUI.WindowSize.Width
+    } catch {
+        Write-Verbose "No console width: $($_.Exception.Message)"
+        return 0
+    }
+}
+
+function Format-WrappedText {
+    # Word-wraps text to Width columns, indenting the lines after the first by
+    # Indent spaces so they line up under the text, not the label. Breaks only
+    # between words and keeps the spacing within a line, so padded columns stay
+    # aligned; a word longer than the line stands alone. Width 0 or less leaves
+    # the text as one line.
+    param([string]$Text, [int]$Width, [int]$Indent = 0)
+    if ($Width -le 0) { return , @($Text) }
+    $lines = [Collections.Generic.List[string]]::new()
+    $prefix = ''
+    $current = ''
+    foreach ($m in [regex]::Matches($Text, '(\s*)(\S+)')) {
+        $gap = $m.Groups[1].Value
+        $word = $m.Groups[2].Value
+        if (-not $current) {
+            # The first line keeps its leading spaces; a wrapped one starts at the indent.
+            $current = if ($lines.Count -eq 0) { $gap + $word } else { $word }
+            continue
+        }
+        if ($prefix.Length + $current.Length + $gap.Length + $word.Length -le $Width) {
+            $current += $gap + $word
+            continue
+        }
+        $lines.Add($prefix + $current)
+        $prefix = ' ' * $Indent
+        $current = $word
+    }
+    $lines.Add($prefix + $current)
+    return , @($lines)
+}
+
+function Write-Wrapped {
+    # Writes text to the console wrapped to the window, in a colour if given.
+    param([string]$Text, [int]$Indent = 0, [string]$Colour)
+    $width = Get-ConsoleWidth
+    # One column spare: a line that exactly fills the window wraps on some hosts.
+    if ($width -gt 0) { $width-- }
+    foreach ($line in (Format-WrappedText $Text $width $Indent)) {
+        if ($Colour) { Write-Host $line -ForegroundColor $Colour } else { Write-Host $line }
+    }
+}
+
+function Write-ScanBanner {
+    # What the scan is about to do, how long it takes and that it changes
+    # nothing, set apart so it reads before the progress bar starts.
+    param([string]$Computer, $Catalog, [bool]$Elevated)
+    $label = 13
+    Write-Host ''
+    Write-Host "Endpoint compliance scan $ComplianceScanVersion" -ForegroundColor Cyan
+    $rows = [ordered]@{
+        Scanning = "$Computer for $($Catalog.Name)"
+        Time     = 'Usually 2 to 5 minutes; longer on a domain controller with a large directory.'
+        Changes  = 'None. The scan only reads; the reports are the only files it leaves.'
+    }
+    foreach ($k in $rows.Keys) { Write-Wrapped ('  ' + $k.PadRight($label - 2) + $rows[$k]) $label Cyan }
+    if (-not $Elevated) {
+        $text = 'Not elevated: checks that need it will be Skipped. Run PowerShell as Administrator for a full scan.'
+        Write-Wrapped ('  ' + 'Elevation'.PadRight($label - 2) + $text) $label Yellow
+    }
+    Write-Host ''
+}
+
+function Write-ReportList {
+    # The report files, one per line under their folder, so a long path never
+    # runs into the next one.
+    param([string[]]$Path)
+    $paths = @($Path)
+    if ($paths.Count -eq 0) { return }
+    $folder = Split-Path $paths[0] -Parent
+    Write-Host "Reports in ${folder}:" -ForegroundColor Cyan
+    foreach ($p in $paths) {
+        $shown = if ((Split-Path $p -Parent) -eq $folder) { Split-Path $p -Leaf } else { $p }
+        Write-Host "  $shown"
+    }
+}
+
 function Write-ScanSummary {
     param($Evaluation, $Snapshot, $Catalog)
     $reqs = @($Evaluation.Requirements)
     $meta = Get-Prop $Snapshot 'Meta'
-    Write-Host ''
     $when = (ConvertTo-DateValue $meta.CollectedUtc).ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
-    Write-Host "Endpoint compliance scan ${ComplianceScanVersion}: $($Catalog.Name), level $($Evaluation.Level), $($meta.ComputerName), collected $when UTC"
-    if (-not $Catalog.Complete) {
-        Write-Host 'This catalog lists only the requirements an endpoint can show evidence for; the rest of the framework is assessed elsewhere.' -ForegroundColor Yellow
-    }
-    if ($Evaluation.PlatformWarning) { Write-Host $Evaluation.PlatformWarning -ForegroundColor Yellow }
-    if (-not $meta.IsElevated) { Write-Host 'Not elevated: checks that need elevation are Skipped.' -ForegroundColor Yellow }
     $order = 'Fail', 'Error', 'Accepted', 'Skipped', 'Manual', 'Pass', 'NotApplicable'
     $counts = foreach ($s in $order) { '{0} {1}' -f @($reqs | Where-Object { $_.State -eq $s }).Count, $s }
-    Write-Host ("$($reqs.Count) requirements: " + ($counts -join ', '))
+    $label = 13
+    Write-Host ''
+    Write-Host "Results: $($Catalog.Name), level $($Evaluation.Level)" -ForegroundColor Cyan
+    Write-Wrapped ('  ' + 'Computer'.PadRight($label - 2) + "$($meta.ComputerName), collected $when UTC (endpoint-compliance-scan $ComplianceScanVersion)") $label Cyan
+    Write-Wrapped ('  ' + 'Totals'.PadRight($label - 2) + "$($reqs.Count) requirements: " + ($counts -join ', ')) $label Cyan
+    Write-Host ''
+    if (-not $Catalog.Complete) {
+        Write-Wrapped 'This catalog lists only the requirements an endpoint can show evidence for; the rest of the framework is assessed elsewhere.' -Colour Yellow
+    }
+    if ($Evaluation.PlatformWarning) { Write-Wrapped $Evaluation.PlatformWarning -Colour Yellow }
+    if (-not $meta.IsElevated) { Write-Wrapped 'Not elevated: checks that need elevation are Skipped.' -Colour Yellow }
     # Fixed-width rows rather than Format-Table, which renders nothing when the
     # host has no console width (a scheduled task, a CI log).
     $cols = 'Pass', 'Fail', 'Error', 'Accepted', 'Skipped', 'Manual', 'NotApplicable'
@@ -2634,11 +2729,12 @@ function Write-ScanSummary {
         Write-Host ($row -f (@($grp.Name) + $n))
     }
     # Then each requirement that needs attention, with only the evidence that didn't pass.
+    if (@($reqs | Where-Object { $_.State -in 'Fail', 'Error', 'Accepted', 'Skipped' }).Count -gt 0) { Write-Host '' }
     $refWidth = [math]::Max(14, (@($reqs | ForEach-Object { "$($_.Reference)".Length }) + 0 | Measure-Object -Maximum).Maximum)
     foreach ($state in 'Fail', 'Error', 'Accepted', 'Skipped') {
         $colour = switch ($state) { 'Fail' { 'Red' } 'Error' { 'Magenta' } 'Accepted' { 'Cyan' } default { 'Yellow' } }
         foreach ($r in @($reqs | Where-Object { $_.State -eq $state })) {
-            Write-Host ("{0,-8} {1,-$refWidth} {2}" -f $state, $r.Reference, $r.Findings) -ForegroundColor $colour
+            Write-Wrapped ("{0,-8} {1,-$refWidth} {2}" -f $state, $r.Reference, $r.Findings) (10 + $refWidth) $colour
         }
     }
 }
@@ -3295,10 +3391,10 @@ try {
         if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
             throw 'A live scan needs Windows. Use -FromSnapshot to evaluate a saved snapshot elsewhere.'
         }
-        Write-Host "Scanning $($env:COMPUTERNAME) for $($catalog.Name). This usually takes 2 to 5 minutes, longer on a domain controller with a large directory, and changes nothing on the machine."
+        Write-ScanBanner -Computer $env:COMPUTERNAME -Catalog $catalog -Elevated (Test-Elevated)
         $clock = [Diagnostics.Stopwatch]::StartNew()
         $snapshot = Get-EndpointSnapshot -Targets (Get-CollectionTarget -Catalogs $catalogs -Thresholds $thresholds)
-        Write-Host ('Evidence collected in {0}m {1:00}s.' -f [math]::Floor($clock.Elapsed.TotalMinutes), $clock.Elapsed.Seconds)
+        Write-Host ('Evidence collected in {0}m {1:00}s.' -f [math]::Floor($clock.Elapsed.TotalMinutes), $clock.Elapsed.Seconds) -ForegroundColor Cyan
     }
     if ($SnapshotPath) {
         $snapshot | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $SnapshotPath -Encoding UTF8
@@ -3312,8 +3408,9 @@ try {
     $files = Export-ScanReport -Evaluation $evaluation -Snapshot $snapshot -Thresholds $thresholds -Catalog $catalog -Folder $folder -IncludeSnapshot:$IncludeSnapshot -Benchmark $benchmark -Notice $notice
 
     Write-ScanSummary -Evaluation $evaluation -Snapshot $snapshot -Catalog $catalog
-    foreach ($n in $notice) { Write-Host $n -ForegroundColor Yellow }
-    Write-Host ("Reports: " + ($files -join ', '))
+    Write-Host ''
+    foreach ($n in $notice) { Write-Wrapped $n -Colour Yellow }
+    Write-ReportList $files
     if ($PassThru) { $evaluation.Requirements }
     $code = Get-ScanExitCode $evaluation.Requirements
 } catch {
