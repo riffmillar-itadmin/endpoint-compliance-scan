@@ -1450,10 +1450,192 @@ Describe 'No silent passes' {
     }
 }
 
+Describe 'Accepted deviations' {
+    BeforeAll {
+        $script:DevFw = @{
+            Id = 'SAMPLE-DEV'; Name = 'Sample deviations'; Source = 'https://example.invalid'
+            Levels = @('One'); Complete = $true; Thresholds = @{}
+            Requirements = @(
+                @{ Id = 'R-1'; Family = 'X'; Level = 'One'; Title = 'Audit right'; Checks = @()
+                    Expect = @(@{ Source = 'UserRight'; Name = 'SeAuditPrivilege'; Op = 'only'; Identities = @('Local Service', 'Network Service') }) }
+                @{ Id = 'R-2.a'; Family = 'X'; Level = 'One'; Title = 'UAC part'; Checks = @('AC-UacEnabled') }
+                @{ Id = 'R-3'; Family = 'X'; Level = 'One'; Title = 'BitLocker'; Checks = @('SC-BitLocker') }
+                @{ Id = 'R-4'; Family = 'X'; Level = 'One'; Title = 'UAC'; Checks = @('AC-UacEnabled') }
+                @{ Id = 'R-5'; Family = 'X'; Level = 'One'; Title = 'UAC and BitLocker'; Checks = @('AC-UacEnabled', 'SC-BitLocker') }
+            )
+        }
+        $script:Spooler = [pscustomobject]@{ Sid = 'S-1-5-99-1000000021-1000000022-1000000023-1000000024-1000000025'; Name = 'RESTRICTED SERVICES\PrintSpoolerService' }
+        $script:SpoolerRule = @{ Rule = 'R-1'; Identity = 'RESTRICTED SERVICES\PrintSpoolerService'; Reason = 'Server default; accepted by the ISSM.' }
+        function Get-DevSnapshot {
+            # The print spooler holds SeAuditPrivilege beside the two allowed
+            # services, plus any $Extra holders; UAC is off.
+            param([object[]]$Extra = @())
+            $s = Get-Fixture
+            Write-Fact $s.UserRights 'SeAuditPrivilege' @(@((Get-IdentityEntry 'Local Service'), (Get-IdentityEntry 'Network Service'), $Spooler) + $Extra)
+            Write-RegFact $s "$Sys\EnableLUA" 0
+            $s
+        }
+        function Get-DevEvaluation {
+            param([object[]]$Deviation, $Snapshot = (Get-DevSnapshot), $For = $DevFw)
+            $t = Get-Threshold
+            $t.Deviations = @($Deviation)
+            Invoke-Evaluation $Snapshot -Thresholds $t -Level 'One' -For $For
+        }
+        function Get-DevResult {
+            param([object[]]$Deviation, $Snapshot = (Get-DevSnapshot), [string]$Id = 'R-1')
+            @((Get-DevEvaluation $Deviation $Snapshot).Requirements | Where-Object Requirement -eq $Id)[0]
+        }
+    }
+
+    It 'fails the rule when no deviation is listed' {
+        (Get-DevResult @()).State | Should -Be 'Fail'
+        (Get-DevEvaluation @()).Requirements.State | Should -Not -Contain 'Accepted'
+    }
+
+    It 'accepts a user right held by the exact account the deviation names, keeping the evidence and the reason' {
+        $r = Get-DevResult @($SpoolerRule)
+        $r.State | Should -Be 'Accepted'
+        $r.Checks | Should -Match '=Accepted'
+        $r.Findings | Should -Match 'PrintSpoolerService'
+        $r.Note | Should -Match 'Accepted deviation: Server default; accepted by the ISSM\.'
+    }
+
+    It 'matches the account by SID too' {
+        (Get-DevResult @(@{ Rule = 'R-1'; Identity = $Spooler.Sid; Reason = 'r' })).State | Should -Be 'Accepted'
+    }
+
+    It 'still fails when another account also holds the right' {
+        $r = Get-DevResult @($SpoolerRule) (Get-DevSnapshot @(Get-IdentityEntry 'Guests'))
+        $r.State | Should -Be 'Fail'
+        $r.Note | Should -Match "accepts only RESTRICTED SERVICES\\PrintSpoolerService, which doesn't cover every finding"
+    }
+
+    It 'never matches a look-alike account: the name must be exact' {
+        (Get-DevResult @(@{ Rule = 'R-1'; Identity = 'PrintSpoolerService'; Reason = 'r' })).State | Should -Be 'Fail'
+        (Get-DevResult @(@{ Rule = 'R-1'; Identity = 'OTHER\PrintSpoolerService'; Reason = 'r' })).State | Should -Be 'Fail'
+    }
+
+    It 'does not let an Identity deviation accept a rule that is not a user right' {
+        $r = Get-DevResult @(@{ Rule = 'R-4'; Identity = 'RESTRICTED SERVICES\PrintSpoolerService'; Reason = 'r' }) -Id 'R-4'
+        $r.State | Should -Be 'Fail'
+        $r.Note | Should -Match "doesn't cover every finding \(AC-UacEnabled\)"
+    }
+
+    It 'accepts any Fail of the rule when the deviation names no account' {
+        (Get-DevResult @(@{ Rule = 'R-4'; Reason = 'UAC is off on this kiosk by design.' }) -Id 'R-4').State | Should -Be 'Accepted'
+    }
+
+    It 'covers the parts of a split rule' {
+        (Get-DevResult @(@{ Rule = 'R-2'; Reason = 'r' }) -Id 'R-2.a').State | Should -Be 'Accepted'
+    }
+
+    It 'leaves a shared check''s result alone for the requirements the deviation does not name' {
+        $e = Get-DevEvaluation @(@{ Rule = 'R-4'; Reason = 'r' })
+        ($e.Requirements | Where-Object Requirement -eq 'R-4').State | Should -Be 'Accepted'
+        ($e.Requirements | Where-Object Requirement -eq 'R-2.a').State | Should -Be 'Fail'
+        ($e.Checks | Where-Object Check -eq 'AC-UacEnabled').State | Should -Be 'Fail'
+    }
+
+    It 'never accepts an Error' {
+        $s = Get-DevSnapshot
+        $s.Collection.BitLocker.Status = 'Error'
+        $s.Collection.BitLocker.Reason = 'Access denied.'
+        (Get-DevResult @(@{ Rule = 'R-3'; Reason = 'r' }) $s -Id 'R-3').State | Should -Be 'Error'
+        $r = Get-DevResult @(@{ Rule = 'R-5'; Reason = 'r' }) $s -Id 'R-5'
+        $r.State | Should -Be 'Error'
+        $r.Checks | Should -Be 'AC-UacEnabled=Accepted; SC-BitLocker=Error'
+    }
+
+    It 'applies only to the framework it names' {
+        (Get-DevResult @(@{ Rule = 'R-4'; Framework = 'SAMPLE-DEV'; Reason = 'r' }) -Id 'R-4').State | Should -Be 'Accepted'
+        (Get-DevResult @(@{ Rule = 'R-4'; Framework = 'DISA-STIG-WS2025-DC'; Reason = 'r' }) -Id 'R-4').State | Should -Be 'Fail'
+    }
+
+    It 'applies through its Expires day and not after, saying so (the fixture was collected 2026-10-20)' {
+        (Get-DevResult @(@{ Rule = 'R-4'; Reason = 'r'; Expires = '2026-10-20' }) -Id 'R-4').State | Should -Be 'Accepted'
+        (Get-DevResult @(@{ Rule = 'R-4'; Reason = 'r'; Expires = '2026-10-20' }) -Id 'R-4').Note | Should -Match '\(until 2026-10-20\)'
+        $r = Get-DevResult @(@{ Rule = 'R-4'; Reason = 'r'; Expires = '2026-10-19' }) -Id 'R-4'
+        $r.State | Should -Be 'Fail'
+        $r.Note | Should -Match 'expired on 2026-10-19'
+    }
+
+    It 'says when a listed deviation has nothing left to accept' {
+        $s = Get-DevSnapshot
+        Write-RegFact $s "$Sys\EnableLUA" 1
+        $r = Get-DevResult @(@{ Rule = 'R-4'; Reason = 'r' }) $s -Id 'R-4'
+        $r.State | Should -Be 'Pass'
+        $r.Note | Should -Match 'nothing in it failed'
+    }
+
+    It 'refuses a deviation with <Why>' -ForEach @(
+        @{ Why = 'no Rule'; Entry = @{ Reason = 'r' }; Message = '*no Rule*' }
+        @{ Why = 'no Reason'; Entry = @{ Rule = 'R-1' }; Message = '*no Reason*' }
+        @{ Why = 'an unknown key'; Entry = @{ Rule = 'R-1'; Reason = 'r'; Account = 'x' }; Message = "*unknown key 'Account'*" }
+        @{ Why = 'a date that is not yyyy-MM-dd'; Entry = @{ Rule = 'R-1'; Reason = 'r'; Expires = '30/06/2027' }; Message = '*use yyyy-MM-dd*' }
+        @{ Why = 'an entry that is not a hashtable'; Entry = 'R-1'; Message = '*is a hashtable*' }
+    ) {
+        { Get-DevEvaluation @($Entry) } | Should -Throw $Message
+    }
+
+    It 'reads Deviations from the local settings file' {
+        $path = Join-Path $TestDrive 'dev.psd1'
+        Set-Content -LiteralPath $path -Value "@{ Deviations = @( @{ Rule = 'R-4'; Reason = 'r' } ) }"
+        $t = Get-ScanThreshold -ExamplePath $ExamplePath -OverridePath $path
+        $e = Invoke-Evaluation (Get-DevSnapshot) -Thresholds $t -Level 'One' -For $DevFw
+        ($e.Requirements | Where-Object Requirement -eq 'R-4').State | Should -Be 'Accepted'
+        @((Get-Threshold).Deviations).Count | Should -Be 0 -Because 'the shipped example accepts nothing'
+    }
+
+    It 'exits 0 when every Fail is accepted' {
+        $e = Get-DevEvaluation @($SpoolerRule, @{ Rule = 'R-2'; Reason = 'r' }, @{ Rule = 'R-4'; Reason = 'r' }, @{ Rule = 'R-5'; Reason = 'r' })
+        @($e.Requirements | Where-Object State -eq 'Fail').Count | Should -Be 0
+        Get-ScanExitCode $e.Requirements | Should -Be 0
+    }
+
+    It 'shows accepted deviations in the HTML report, the JSON summary and the records' {
+        $e = Get-DevEvaluation @($SpoolerRule)
+        $html = ConvertTo-HtmlReport $e (Get-DevSnapshot) $DevFw
+        $html | Should -Match '<b class="Accepted">1</b>Accepted deviation'
+        $html | Should -Match 'data-state="Accepted"'
+        $html | Should -Match 'value="Accepted" checked'
+        $files = Export-ScanReport -Evaluation $e -Snapshot (Get-DevSnapshot) -Thresholds (Get-Threshold) -Catalog $DevFw -Folder (Join-Path $TestDrive 'dev')
+        $json = Get-Content -LiteralPath @($files | Where-Object { $_ -like '*-sample-dev.json' })[0] -Raw | ConvertFrom-Json
+        $json.Summary.Accepted | Should -Be 1
+        $records = Get-Content -LiteralPath @($files | Where-Object { $_ -like '*.records.json' })[0] -Raw | ConvertFrom-Json
+        ($records | Where-Object Requirement -eq 'R-1').State | Should -Be 'Accepted'
+    }
+
+    It 'keeps an accepted rule Open in a STIG Viewer checklist, with the reason in the comments' {
+        $fw = @{
+            Id = 'SAMPLE-STIG'; Name = 'Sample STIG'; Source = 'https://example.invalid'; StigId = 'Sample_Westmark_STIG'
+            Levels = @('CAT I', 'CAT II', 'CAT III'); Complete = $true; Thresholds = @{}
+            Requirements = @(@{ Id = 'V-900001'; Family = 'X'; Level = 'CAT II'; Title = 'UAC'; Checks = @('AC-UacEnabled') })
+        }
+        $t = Get-Threshold
+        $t.Deviations = @(@{ Rule = 'V-900001'; Reason = 'UAC is off on this kiosk by design.' })
+        $s = Get-DevSnapshot
+        $e = Invoke-Evaluation $s -Thresholds $t -Level 'CAT III' -For $fw
+        $c = Get-ChecklistResult $e $s $fw (Read-StigBenchmark (Join-Path $PSScriptRoot 'fixtures/stig-sample-xccdf.xml'))
+        $c.Entries['V-900001'].Status | Should -Be 'Open'
+        $c.Entries['V-900001'].Comments | Should -Match 'Accepted\. Accepted deviation: UAC is off on this kiosk by design\.'
+        $c.Entries['V-900001'].Details | Should -Match 'V-900001 Accepted: AC-UacEnabled: EnableLUA = 0'
+    }
+}
+
+Describe 'Collector progress' {
+    It 'names every collector, in the order the scan runs them' {
+        $run = @([regex]::Matches((Get-Content -LiteralPath $ScriptPath -Raw), 'Invoke-Collector \$snap ''(\w+)''') | ForEach-Object { $_.Groups[1].Value })
+        $run.Count | Should -BeGreaterThan 0
+        $run | Should -Be @($CollectorLabel.Keys)
+    }
+}
+
 Describe 'Exit codes' {
     It 'gives <Want> for <States>' -ForEach @(
         @{ States = @('Pass', 'Manual'); Want = 0 }
         @{ States = @('Pass', 'Skipped', 'NotApplicable'); Want = 0 }
+        @{ States = @('Pass', 'Accepted'); Want = 0 }
+        @{ States = @('Accepted', 'Fail'); Want = 1 }
         @{ States = @('Pass', 'Fail'); Want = 1 }
         @{ States = @('Fail', 'Error'); Want = 2 }
         @{ States = @('Error'); Want = 2 }
