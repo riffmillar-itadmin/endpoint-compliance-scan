@@ -17,7 +17,7 @@ BeforeAll {
         $p
     }
 
-    function Build-FakePackage {
+    function Export-FakePackage {
         # A made-up module package (a zip), with the module at the root or under
         # tools/ as nuget.org's Pester has it.
         param([string]$Version = '1.0.0', [string]$Under = '', [string]$Marker = 'one')
@@ -35,8 +35,8 @@ BeforeAll {
         $zip
     }
 
-    $script:PinnedZip = Build-FakePackage -Under 'tools'
-    $script:OtherZip = Build-FakePackage -Marker 'two'
+    $script:PinnedZip = Export-FakePackage -Under 'tools'
+    $script:OtherZip = Export-FakePackage -Marker 'two'
     $script:FakeUrl = 'https://example.invalid/fakemodule.1.0.0.nupkg'
     $PinnedPackage['FakeModule/1.0.0'] = @{ Url = $FakeUrl; Sha256 = (Get-PackageSha256 $PinnedZip) }
 }
@@ -119,7 +119,7 @@ Describe 'Test tool install' {
         Mock Install-Module { throw 'gallery down' }
         Mock Invoke-WebRequest { throw 'host not found' }
         $packages = Get-TestFolder
-        Copy-Item -LiteralPath (Build-FakePackage -Version '2.0.0') -Destination (Join-Path $packages 'FakeModule.1.0.0.nupkg')
+        Copy-Item -LiteralPath (Export-FakePackage -Version '2.0.0') -Destination (Join-Path $packages 'FakeModule.1.0.0.nupkg')
         { Install-PinnedModule -Name FakeModule -Version 1.0.0 -PackagePath $packages 3>$null } |
             Should -Throw '*holds FakeModule 2.0.0, not 1.0.0*'
         Join-Path $ModuleRoot 'FakeModule' | Should -Not -Exist
