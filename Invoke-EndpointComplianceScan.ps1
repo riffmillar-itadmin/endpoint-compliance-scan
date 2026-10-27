@@ -167,6 +167,9 @@
                        header are short blocks set apart in colour, notes
                        and findings wrap between words to the window, and
                        the report files are listed one per line.
+    0.11.2 2026-10-27  Test scripts install Pester and PSScriptAnalyzer from
+                       the PowerShell Gallery, then a second site checked
+                       against a pinned SHA-256, then a local package.
 #>
 
 [CmdletBinding()]
@@ -185,7 +188,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.11.1'
+$ComplianceScanVersion = '0.11.2'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }

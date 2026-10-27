@@ -320,6 +320,16 @@ that a snapshot meeting every expectation passes. Skipped tests fail the run.
 The Tests workflow runs the suite, lint on both editions, and a live scan of the
 runner on both editions, evaluated against every framework.
 
+Both scripts are pinned to one version of their tool (Pester 6.2.0,
+PSScriptAnalyzer 1.25.0) and install it for the current user if it's missing.
+They try the PowerShell Gallery first. If that fails, they download the same
+version from a second site (nuget.org for Pester, the GitHub release for
+PSScriptAnalyzer) and check it against a SHA-256 pinned in
+`tools/Install-PinnedModule.ps1`. On a machine with no internet access, save
+`Pester.6.2.0.nupkg` or `PSScriptAnalyzer.1.25.0.nupkg` from the Gallery to a
+folder and pass that folder with `-PackagePath`. Each source that fails is
+reported, along with the one that worked.
+
 ## Updating the catalogs
 
 The NIST and DISA STIG catalogs are generated from published data by
@@ -361,6 +371,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.11.2 | 2026-10-27 | The test scripts no longer depend on the PowerShell Gallery alone. If it fails, Pester comes from nuget.org and PSScriptAnalyzer from its GitHub release, each checked against a pinned SHA-256. A local package can be given with `-PackagePath`. An Install-Module failure reported without an exception now counts as a failure. |
 | 0.11.1 | 2026-10-27 | Console output is easier to read. The launch notice and the results header are short blocks set apart in colour, with a warning at launch when the session isn't elevated. Notes and findings wrap between words to the window width, with continuation lines indented under the text, so columns stay aligned. Report files are listed one per line under their folder. A scheduled task or redirected output gets unwrapped lines. |
 | 0.11.0 | 2026-10-27 | Accepted deviations: list a rule, its reason, and optionally the framework, the exact accounts and an expiry date under `Deviations` in `ComplianceScan.local.psd1`. A Fail they cover reports as Accepted, keeping its evidence and the reason in every report; STIG Viewer checklists keep it Open with the reason in Comments, and it doesn't count toward exit code 1. A deviation never accepts an Error, and an account-specific one covers only those exact accounts. A live scan now says at launch how long it usually takes, shows a progress bar per collector at the console, and reports how long collection took. |
 | 0.10.1 | 2026-10-26 | The features collector falls back to CIM (`Win32_OptionalFeature`) when DISM's `Get-WindowsOptionalFeature` fails, as it can under PowerShell 7 ("Class not registered"). Before, the collector reported an Error and every optional feature rule went with it. |

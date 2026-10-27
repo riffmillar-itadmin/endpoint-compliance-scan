@@ -11,17 +11,26 @@
     nothing about the other, so if the other edition can't be found the run fails
     rather than reporting half a result.
 
+    Pester is installed from the PowerShell Gallery, then from nuget.org (checked
+    against a pinned SHA-256), then from -PackagePath, whichever works first.
+
     Exit code 0 only when every test passed and none was skipped. A skipped test
     is counted and fails the run: a test that can't apply must say so, not pass.
+
+.PARAMETER PackagePath
+    A folder holding Pester.6.2.0.nupkg, used if Pester is missing and can't be
+    downloaded.
 
 .EXAMPLE
     .\Test-ComplianceScan.ps1 -BothEditions
     pwsh -File ./Test-ComplianceScan.ps1          # one edition, any OS
+    .\Test-ComplianceScan.ps1 -PackagePath D:\packages   # no internet access
 #>
 
 [CmdletBinding()]
 param(
-    [switch]$BothEditions
+    [switch]$BothEditions,
+    [string]$PackagePath
 )
 
 Set-StrictMode -Version Latest
@@ -30,13 +39,11 @@ $ErrorActionPreference = 'Stop'
 $version = '6.2.0'
 $edition = "PowerShell $($PSVersionTable.PSVersion)"
 
+if ($PackagePath) { $PackagePath = (Resolve-Path -LiteralPath $PackagePath).Path }
 if (-not (Get-Module -ListAvailable Pester | Where-Object { "$($_.Version)" -eq $version })) {
-    # Windows PowerShell 5.1 needs TLS 1.2 and the NuGet provider for the Gallery.
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    if ($PSVersionTable.PSEdition -ne 'Core' -and -not (Get-PackageProvider -ListAvailable -Name NuGet -ErrorAction SilentlyContinue)) {
-        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
-    }
-    Install-Module Pester -RequiredVersion $version -Scope CurrentUser -Force -SkipPublisherCheck -AllowClobber
+    . (Join-Path $PSScriptRoot 'tools/Install-PinnedModule.ps1')
+    Install-PinnedModule -Name Pester -Version $version -PackagePath $PackagePath `
+        -GalleryParameters @{ SkipPublisherCheck = $true; AllowClobber = $true }
 }
 Import-Module Pester -RequiredVersion $version
 
@@ -59,7 +66,9 @@ if ($BothEditions) {
         Write-Output "-BothEditions: $other not found, so the other edition was not tested. Failing the run."
         $failed = 1
     } else {
-        & $other -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath
+        $childArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath)
+        if ($PackagePath) { $childArgs += '-PackagePath', $PackagePath }
+        & $other @childArgs
         if ($LASTEXITCODE -ne 0) { $failed = 1 }
     }
 }

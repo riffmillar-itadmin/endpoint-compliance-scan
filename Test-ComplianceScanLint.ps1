@@ -9,18 +9,27 @@
 
     Pinned to the analyzer version the settings were tuned against, because a
     newer analyzer can add rules and fail the build with no code change. Installs
-    that version for the current user if it is missing.
+    that version for the current user if it is missing: from the PowerShell
+    Gallery, then from the analyzer's GitHub release (checked against a pinned
+    SHA-256), then from -PackagePath, whichever works first.
 
     Inside GitHub Actions each finding becomes an annotation on its file and
     line; anywhere else it prints file:line [rule] message.
 
+.PARAMETER PackagePath
+    A folder holding PSScriptAnalyzer.1.25.0.nupkg, used if the analyzer is
+    missing and can't be downloaded.
+
 .EXAMPLE
     .\Test-ComplianceScanLint.ps1
     powershell.exe -File .\Test-ComplianceScanLint.ps1      # Windows PowerShell 5.1
+    .\Test-ComplianceScanLint.ps1 -PackagePath D:\packages  # no internet access
 #>
 
 [CmdletBinding()]
-param()
+param(
+    [string]$PackagePath
+)
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -29,12 +38,8 @@ $version = '1.25.0'
 $edition = "PowerShell $($PSVersionTable.PSVersion)"
 
 if (-not (Get-Module -ListAvailable PSScriptAnalyzer | Where-Object Version -eq $version)) {
-    # Windows PowerShell 5.1 needs TLS 1.2 and the NuGet provider for the Gallery.
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    if (-not (Get-PackageProvider -ListAvailable -Name NuGet -ErrorAction SilentlyContinue)) {
-        Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
-    }
-    Install-Module PSScriptAnalyzer -RequiredVersion $version -Scope CurrentUser -Force
+    . (Join-Path $PSScriptRoot 'tools/Install-PinnedModule.ps1')
+    Install-PinnedModule -Name PSScriptAnalyzer -Version $version -PackagePath $PackagePath
 }
 Import-Module PSScriptAnalyzer -RequiredVersion $version
 
