@@ -128,9 +128,15 @@ be evaluated against any of them with `-FromSnapshot`.
 
 Reports go to `.\Reports` or `-OutputPath`; see [Reports](#reports).
 
+A live scan says at launch that it usually takes 2 to 5 minutes (longer on a
+domain controller with a large directory) and changes nothing. At the console, a
+progress bar names each collector as it runs, such as `Windows features (6 of
+15)`, and the scan reports how long collection took. A scheduled task or CI log
+gets no progress bar.
+
 | Exit code | Meaning |
 | --- | --- |
-| 0 | No Fail and no Error |
+| 0 | No Fail and no Error (accepted deviations don't count as Fail) |
 | 1 | At least one Fail |
 | 2 | At least one Error, or the scan couldn't start (including no `-Framework`) |
 
@@ -179,6 +185,7 @@ with its text:
 | --- | --- |
 | Pass | Not a Finding |
 | Fail | Open |
+| Accepted | Open, with the deviation's reason in Comments |
 | NotApplicable | Not Applicable |
 | Manual, Skipped, Error | Not Reviewed |
 | Not in the catalog, or above `-Level` | Not Reviewed, with a comment saying why |
@@ -197,6 +204,7 @@ checklists and writes the other reports.
 | Pass | Evidence collected and it meets the threshold |
 | Fail | Evidence collected and it misses the threshold |
 | Error | A collector or check threw; the message is in the report |
+| Accepted | A Fail that an [accepted deviation](#accepted-deviations) covers; the evidence and the reason stay in the report |
 | Skipped | The check applies but couldn't run (usually: not elevated) |
 | Manual | The endpoint can't show this; the note says what can |
 | NotApplicable | The thing checked is absent, for example RDP idle limits with RDP off, or local accounts on a domain controller |
@@ -261,6 +269,43 @@ the scan warns and uses yours.
 FIPS-validated modules or device control are evidenced some other way. Those
 checks then report Manual instead of Fail.
 
+## Accepted deviations
+
+Some Fails are known and accepted, such as a right Windows grants by default
+that a STIG doesn't allow. List them under `Deviations` in
+`ComplianceScan.local.psd1`, each with the rule and the reason:
+
+```powershell
+@{
+    Deviations = @(
+        @{
+            Rule      = 'V-278252'
+            Framework = 'DISA-STIG-WS2025-DC'
+            Identity  = 'RESTRICTED SERVICES\PrintSpoolerService'
+            Reason    = 'Windows Server 2025 grants this to the print spooler by default; accepted by the ISSM.'
+            Expires   = '2027-06-30'
+        }
+    )
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `Rule` | The requirement ID (required). `V-1` also covers a split rule's parts, `V-1.a` and `V-1.b`. |
+| `Reason` | Why it is accepted, and by whom (required) |
+| `Framework` | Limits it to one framework's Id. Without it, the rule ID is matched in whichever framework is scanned. |
+| `Identity` | For a user right, the exact accounts accepted, by full name (`DOMAIN\name`) or SID. Anyone else holding the right still fails, and a look-alike name doesn't match. |
+| `Expires` | The last day it applies (`yyyy-MM-dd`), judged against the scan's collection date. After that the rule fails again and its note says the deviation expired. |
+
+A Fail that a deviation covers reports as **Accepted**. The requirement keeps
+its findings and evidence, its note carries the reason, and STIG Viewer
+checklists keep it Open with the reason in Comments. Accepted doesn't count
+toward exit code 1. A deviation never accepts an Error, Skipped or Manual
+result. If it doesn't cover every Fail in the rule, for example because another
+account also holds the right, the rule stays Fail and its note says what the
+deviation doesn't cover. When a listed rule no longer fails, its note says the
+deviation may no longer be needed. A malformed entry stops the scan.
+
 ## Testing
 
 ```powershell
@@ -315,6 +360,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.11.0 | 2026-10-27 | Accepted deviations: list a rule, its reason, and optionally the framework, the exact accounts and an expiry date under `Deviations` in `ComplianceScan.local.psd1`. A Fail they cover reports as Accepted, keeping its evidence and the reason in every report; STIG Viewer checklists keep it Open with the reason in Comments, and it doesn't count toward exit code 1. A deviation never accepts an Error, and an account-specific one covers only those exact accounts. A live scan now says at launch how long it usually takes, shows a progress bar per collector at the console, and reports how long collection took. |
 | 0.10.1 | 2026-10-26 | The features collector falls back to CIM (`Win32_OptionalFeature`) when DISM's `Get-WindowsOptionalFeature` fails, as it can under PowerShell 7 ("Class not registered"). Before, the collector reported an Error and every optional feature rule went with it. |
 | 0.10.0 | 2026-10-26 | DISA Windows PAW STIG V3R3 as `DISA-STIG-PAW`, for Windows 11 privileged access workstations: 24 rules, 7 automated and 2 with evidence for review. New Device Guard collector (code integrity enforcement), and the local accounts collector also records the members of the local privileged groups, through CIM with an ADSI fallback. A new `Local` expectation source runs named endpoint tests for rules that read more than one setting or need judgement. Snapshot schema 5. |
 | 0.9.1 | 2026-10-25 | Directory findings name a well-known SID group member, such as Everyone or Anonymous Logon, instead of showing its SID. The directory stores these members as foreign security principals named only by SID, so a lab domain controller scan reported "includes S-1-1-0". Saved snapshots show the names too, since the names are applied when the snapshot is evaluated. |

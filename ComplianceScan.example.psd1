@@ -76,4 +76,28 @@
         @{ Name = 'Audit Policy Change';       Setting = 'Success' }
         @{ Name = 'Sensitive Privilege Use';   Setting = 'SuccessAndFailure' }
     )
+
+    # Accepted deviations: rules your organization has reviewed and accepted as
+    # they are. A Fail they cover reports as Accepted, with the reason, instead
+    # of Fail; the evidence stays in every report, and a STIG Viewer checklist
+    # keeps the rule Open with the reason in its comments. A deviation never
+    # turns an Error, Skipped or Manual result into anything else.
+    #   Rule       the requirement ID, such as V-278252 or 3.1.5 (required)
+    #   Reason     why it is accepted, and by whom (required)
+    #   Framework  limits it to one framework's Id, such as DISA-STIG-WS2025-DC
+    #   Identity   for user rights: the exact accounts (DOMAIN\name or SID) it
+    #              accepts. Any other account holding the right still fails.
+    #   Expires    last day it applies (yyyy-MM-dd); after that it is ignored
+    #              and the report says so
+    # Keep the list in ComplianceScan.local.psd1. For example:
+    #   Deviations = @(
+    #       @{
+    #           Rule      = 'V-278252'
+    #           Framework = 'DISA-STIG-WS2025-DC'
+    #           Identity  = 'RESTRICTED SERVICES\PrintSpoolerService'
+    #           Reason    = 'Windows Server 2025 grants this to the print spooler by default; accepted by the ISSM.'
+    #           Expires   = '2027-06-30'
+    #       }
+    #   )
+    Deviations                  = @()
 }

@@ -24,13 +24,17 @@
     Windows feature or a directory test), or from both. Its result is the worst of those results:
         Fail           evidence collected and it misses the threshold
         Error          a collector or check threw; the message is in the report
+        Accepted       a Fail that a deviation in the local settings file
+                       accepts; the report keeps the evidence and the reason
         Skipped        the check applies but could not run (usually: not elevated)
         Manual         the endpoint cannot show this; the note says what can
         Pass           evidence collected and it meets the threshold
         NotApplicable  the thing checked is absent (for example, RDP is off, or
                        local accounts on a domain controller)
     Nothing passes by default. A fact missing from the snapshot is an Error, never
-    a Pass.
+    a Pass. An accepted deviation is listed by rule, with its reason, under
+    Deviations in ComplianceScan.local.psd1 (see ComplianceScan.example.psd1);
+    it accepts a Fail, never an Error.
 
     A STIG catalog names the Windows edition and build it was written for. Run on
     any other, the scan warns, and the report carries the warning.
@@ -51,8 +55,8 @@
         compliance-scan-<scan id>-<framework>.cklb          STIG Viewer 3 checklist (STIGs, with -StigPath)
         compliance-scan-<scan id>-<framework>.ckl           STIG Viewer 2 checklist (STIGs, with -StigPath)
 
-    Exit codes: 0 no Fail and no Error; 1 at least one Fail; 2 at least one Error,
-    or the scan could not start. Error wins over Fail because a run with errors
+    Exit codes: 0 no Fail and no Error (accepted deviations included); 1 at least
+    one Fail; 2 at least one Error, or the scan could not start. Error wins over Fail because a run with errors
     can't be relied on either way.
 
 .PARAMETER Framework
@@ -69,8 +73,8 @@
 
 .PARAMETER ProfilePath
     Thresholds file to use on top of ComplianceScan.example.psd1 and the
-    framework's own thresholds. Without it, a ComplianceScan.local.psd1 beside the
-    script is used if present.
+    framework's own thresholds, which can also list accepted deviations. Without
+    it, a ComplianceScan.local.psd1 beside the script is used if present.
 
 .PARAMETER SnapshotPath
     Also save the collected snapshot to this JSON file, for review elsewhere or as
@@ -156,6 +160,9 @@
                        for rules that need judgement. Snapshot schema 5.
     0.10.1 2026-10-26  Optional features fall back to CIM (Win32_OptionalFeature)
                        when DISM fails, as it can under PowerShell 7.
+    0.11.0 2026-10-27  Accepted deviations, listed with a reason in the local
+                       settings file, report as Accepted instead of Fail.
+                       Progress per collector and a time estimate at launch.
 #>
 
 [CmdletBinding()]
@@ -174,10 +181,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.10.1'
+$ComplianceScanVersion = '0.11.0'
 $SnapshotSchemaVersion = 5
 
-$StateRank = @{ Fail = 0; Error = 1; Skipped = 2; Manual = 3; Pass = 4; NotApplicable = 5 }
+$StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }
 
 #region Helpers
 
@@ -1153,10 +1160,24 @@ function Test-IdentityMatch {
     return $false
 }
 
+function Test-ExactIdentity {
+    # True when an assigned entry is one of the accounts named exactly, by full
+    # name (DOMAIN\name) or SID. Accepted deviations match this way, so a
+    # deviation never covers a look-alike account.
+    param($Entry, [string[]]$Identity)
+    foreach ($i in $Identity) {
+        if ("$($Entry.Name)" -and "$($Entry.Name)" -eq $i) { return $true }
+        if ("$($Entry.Sid)" -and "$($Entry.Sid)" -eq $i) { return $true }
+    }
+    return $false
+}
+
 function Test-UserRight {
     # Op 'only': everyone holding the right is in Identities (empty: no one may).
     # Op 'includes': each of Identities holds it. 'A|B' in Identities means
     # either. Domain groups aren't required of a machine outside a domain.
+    # Accept (set only when an accepted deviation is checked) names exact
+    # accounts that may also hold the right.
     param($Snapshot, $Expect)
     $rights = Get-Prop $Snapshot 'UserRights'
     $assigned = @()
@@ -1167,7 +1188,10 @@ function Test-UserRight {
     switch ("$($Expect.Op)") {
         'only' {
             $allowed = @($wanted | ForEach-Object { "$_" -split '\|' })
-            $extra = @($assigned | Where-Object { -not (Test-IdentityMatch $_ $allowed) } | ForEach-Object { Format-Identity $_ })
+            $accept = @()
+            if ($Expect.Contains('Accept')) { $accept = @($Expect.Accept) }
+            $extra = @($assigned | Where-Object { -not (Test-IdentityMatch $_ $allowed) -and -not (Test-ExactIdentity $_ $accept) } |
+                ForEach-Object { Format-Identity $_ })
             if ($extra.Count -eq 0) { return New-CheckResult Pass "$ev." }
             $limit = if ($allowed.Count -gt 0) { 'only ' + ($allowed -join ', ') } else { 'no one' }
             return New-CheckResult Fail "$ev; allowed: $limit."
@@ -1732,6 +1756,111 @@ function Get-PlatformMismatch {
 
 #endregion
 
+#region Accepted deviations
+
+# Keys a deviation in the local settings file may have.
+$DeviationKey = @('Rule', 'Framework', 'Identity', 'Reason', 'Expires')
+
+function Get-DeviationList {
+    # The accepted deviations listed under Deviations in the thresholds
+    # (ComplianceScan.local.psd1), checked. Each names a rule and why it is
+    # accepted, and can name the framework, the exact accounts it covers and the
+    # last day it applies. A malformed entry stops the scan rather than being
+    # half applied.
+    param($Thresholds)
+    if ($null -eq $Thresholds -or -not $Thresholds.Contains('Deviations')) { return @() }
+    @(foreach ($d in @($Thresholds.Deviations)) {
+        if ($null -eq $d) { continue }
+        if ($d -isnot [Collections.IDictionary]) { throw 'Each entry in Deviations is a hashtable, such as @{ Rule = ...; Reason = ... }.' }
+        foreach ($k in @($d.Keys)) {
+            if ("$k" -notin $DeviationKey) { throw "Deviation for '$($d['Rule'])' has unknown key '$k'; use $($DeviationKey -join ', ')." }
+        }
+        if (-not "$($d['Rule'])".Trim()) { throw 'A deviation has no Rule.' }
+        if (-not "$($d['Reason'])".Trim()) { throw "Deviation for $($d['Rule']) has no Reason; say why it is accepted." }
+        $expires = $null
+        if ("$($d['Expires'])") {
+            $parsed = [datetime]::MinValue
+            if (-not [datetime]::TryParseExact("$($d['Expires'])", 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::None, [ref]$parsed)) {
+                throw "Deviation for $($d['Rule']) has Expires '$($d['Expires'])'; use yyyy-MM-dd."
+            }
+            $expires = $parsed
+        }
+        [pscustomobject]@{
+            Rule      = "$($d['Rule'])".Trim()
+            Framework = "$($d['Framework'])".Trim()
+            Identity  = @(@($d['Identity']) | Where-Object { "$_".Trim() } | ForEach-Object { "$_".Trim() })
+            Reason    = "$($d['Reason'])".Trim()
+            Expires   = $expires
+        }
+    })
+}
+
+function Get-RequirementDeviation {
+    # The deviations listed for one requirement of this framework. A deviation
+    # for V-1 also covers the parts of a split rule (V-1.a, V-1.b).
+    param([object[]]$Deviations, $Catalog, [string]$Requirement)
+    $base = $Requirement -replace '\.[a-z]$', ''
+    @($Deviations | Where-Object {
+        ($_.Rule -eq $Requirement -or $_.Rule -eq $base) -and (-not $_.Framework -or $_.Framework -eq $Catalog.Id)
+    })
+}
+
+function Resolve-Deviation {
+    # Applies a requirement's deviations to its results. The Fails become
+    # Accepted only when the deviations cover every one of them: a deviation
+    # without Identity covers any Fail of the rule; one with Identity covers a
+    # user right that those exact accounts hold beyond what the rule allows, and
+    # nothing else. Error, Skipped and Manual are never accepted. Returns the
+    # results and the notes to add.
+    param([object[]]$Item, [object[]]$Deviations, $Snapshot)
+    $notes = @()
+    $collected = ConvertTo-DateValue (Get-Prop (Get-Prop $Snapshot 'Meta') 'CollectedUtc')
+    $active = @()
+    foreach ($d in $Deviations) {
+        if ($d.Expires -and $collected -and $collected.Date -gt $d.Expires.Date) {
+            $notes += "A deviation for this rule expired on $($d.Expires.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)) and no longer applies."
+        } else {
+            $active += $d
+        }
+    }
+    $results = @($Item | ForEach-Object { $_.Result })
+    if ($active.Count -eq 0) { return [pscustomobject]@{ Results = $results; Notes = $notes } }
+    $fails = @($Item | Where-Object { $_.Result.State -eq 'Fail' })
+    if ($fails.Count -eq 0) {
+        $notes += 'A deviation is listed for this rule, but nothing in it failed on this scan; it may no longer be needed.'
+        return [pscustomobject]@{ Results = $results; Notes = $notes }
+    }
+    $wholeRule = @($active | Where-Object { $_.Identity.Count -eq 0 }).Count -gt 0
+    $accounts = @($active | ForEach-Object { $_.Identity } | Select-Object -Unique)
+    $uncovered = @(foreach ($f in $fails) {
+        if ($wholeRule) { continue }
+        if ($f.Expect -and "$($f.Expect.Source)" -eq 'UserRight') {
+            $retry = @{}
+            foreach ($k in @($f.Expect.Keys)) { $retry[$k] = $f.Expect[$k] }
+            $retry.Accept = $accounts
+            if ((Invoke-Expectation -Expect $retry -Snapshot $Snapshot).State -eq 'Pass') { continue }
+        }
+        $f.Result.Check
+    })
+    if ($uncovered.Count -gt 0) {
+        $notes += "A deviation is listed for this rule, but it accepts only $($accounts -join ', '), which doesn't cover every finding ($($uncovered -join '; '))."
+        return [pscustomobject]@{ Results = $results; Notes = $notes }
+    }
+    $reason = (@($active | ForEach-Object {
+        $_.Reason + $(if ($_.Expires) { " (until $($_.Expires.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)))" } else { '' })
+    } | Select-Object -Unique) -join ' ')
+    $notes += "Accepted deviation: $reason"
+    $results = @(foreach ($r in $results) {
+        if ($r.State -ne 'Fail') { $r; continue }
+        # A copy: a named check's result is shared by every requirement that names it.
+        [pscustomobject]@{ Check = $r.Check; Title = $r.Title; State = 'Accepted'; Evidence = $r.Evidence; Note = $r.Note }
+    })
+    return [pscustomobject]@{ Results = $results; Notes = $notes }
+}
+
+#endregion
+
 function Invoke-ComplianceEvaluation {
     # Judges a snapshot against one framework. Returns the check results and one
     # result per requirement at or under -Level (a level includes the ones
@@ -1741,6 +1870,7 @@ function Invoke-ComplianceEvaluation {
     $levels = @($Catalog.Levels)
     $cut = [array]::IndexOf($levels, $Level)
 
+    $deviations = @(Get-DeviationList $Thresholds)
     $table = Get-CheckTable
     $checkResults = [ordered]@{}
     foreach ($name in $table.Keys) {
@@ -1753,12 +1883,19 @@ function Invoke-ComplianceEvaluation {
         if ($rank -gt $cut) { continue }
         $notes = @()
         if ($r.Contains('Note') -and $r.Note) { $notes += $r.Note }
-        $results = @(foreach ($n in @($r.Checks)) {
+        $items = @(foreach ($n in @($r.Checks)) {
             if (-not $checkResults.Contains($n)) { throw "Catalog entry $($r.Id) names unknown check '$n'." }
-            $checkResults[$n]
+            [pscustomobject]@{ Result = $checkResults[$n]; Expect = $null }
         })
         if ($r.Contains('Expect')) {
-            $results += @(foreach ($e in @($r.Expect)) { Invoke-Expectation -Expect $e -Snapshot $Snapshot })
+            $items += @(foreach ($e in @($r.Expect)) { [pscustomobject]@{ Result = (Invoke-Expectation -Expect $e -Snapshot $Snapshot); Expect = $e } })
+        }
+        $results = @($items | ForEach-Object { $_.Result })
+        $listed = @(Get-RequirementDeviation $deviations $Catalog "$($r.Id)")
+        if ($listed.Count -gt 0) {
+            $applied = Resolve-Deviation -Item $items -Deviations $listed -Snapshot $Snapshot
+            $results = @($applied.Results)
+            $notes += @($applied.Notes)
         }
         if ($results.Count -eq 0) {
             $state = 'Manual'
@@ -1863,12 +2000,34 @@ function Test-Elevated {
     return ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# The collectors in the order Get-EndpointSnapshot runs them, named as the
+# progress bar shows them.
+$CollectorLabel = [ordered]@{
+    SecurityPolicy = 'Security policy'; UserRights = 'User rights'; AuditPolicy = 'Audit policy'
+    Registry = 'Registry values'; Services = 'Services'; Features = 'Windows features'; Smb = 'SMB settings'
+    Firewall = 'Firewall'; Defender = 'Microsoft Defender'; SecurityCenter = 'Security Center'
+    BitLocker = 'BitLocker'; LocalAccounts = 'Local accounts and groups'; DeviceGuard = 'Device Guard'
+    Directory = 'Active Directory'; Hotfix = 'Installed updates'
+}
+
+function Write-CollectorProgress {
+    # The progress bar, one step per collector. Shown only to a person at the
+    # console: a scheduled task or CI log gets no progress records.
+    param([string]$Name)
+    if (-not [Environment]::UserInteractive) { return }
+    $names = @($CollectorLabel.Keys)
+    $step = [array]::IndexOf($names, $Name) + 1
+    $label = if ($step -gt 0) { $CollectorLabel[$Name] } else { $Name }
+    Write-Progress -Activity 'Collecting evidence (read-only)' -Status "$label ($step of $($names.Count))" -PercentComplete ([math]::Floor(100 * ($step - 1) / $names.Count))
+}
+
 function Invoke-Collector {
     # Fills one snapshot section. A collector throws PlatformNotSupportedException
     # when the section has no meaning on this kind of Windows (NotApplicable),
     # NotSupportedException when its source doesn't exist on this machine
     # (Skipped); anything else is Error.
     param($Snapshot, [string]$Name, [bool]$Elevated, [switch]$RequiresAdmin, [scriptblock]$Script)
+    Write-CollectorProgress $Name
     if ($RequiresAdmin -and -not $Elevated) {
         $Snapshot.Collection[$Name] = [ordered]@{ Status = 'Skipped'; Reason = 'Needs an elevated session.' }
         $Snapshot[$Name] = $null
@@ -2440,6 +2599,7 @@ function Get-EndpointSnapshot {
         }
     }
 
+    if ([Environment]::UserInteractive) { Write-Progress -Activity 'Collecting evidence (read-only)' -Completed }
     # Round-trip through JSON so a live snapshot has exactly the shape of a saved one.
     return ($snap | ConvertTo-Json -Depth 8 | ConvertFrom-Json)
 }
@@ -2460,23 +2620,23 @@ function Write-ScanSummary {
     }
     if ($Evaluation.PlatformWarning) { Write-Host $Evaluation.PlatformWarning -ForegroundColor Yellow }
     if (-not $meta.IsElevated) { Write-Host 'Not elevated: checks that need elevation are Skipped.' -ForegroundColor Yellow }
-    $order = 'Fail', 'Error', 'Skipped', 'Manual', 'Pass', 'NotApplicable'
+    $order = 'Fail', 'Error', 'Accepted', 'Skipped', 'Manual', 'Pass', 'NotApplicable'
     $counts = foreach ($s in $order) { '{0} {1}' -f @($reqs | Where-Object { $_.State -eq $s }).Count, $s }
     Write-Host ("$($reqs.Count) requirements: " + ($counts -join ', '))
     # Fixed-width rows rather than Format-Table, which renders nothing when the
     # host has no console width (a scheduled task, a CI log).
-    $cols = 'Pass', 'Fail', 'Error', 'Skipped', 'Manual', 'NotApplicable'
+    $cols = 'Pass', 'Fail', 'Error', 'Accepted', 'Skipped', 'Manual', 'NotApplicable'
     $width = [math]::Max(7, (@($reqs | ForEach-Object { "$($_.Family)".Length }) + 0 | Measure-Object -Maximum).Maximum + 1)
-    $row = "{0,-$width}{1,6}{2,6}{3,7}{4,9}{5,8}{6,5}"
-    Write-Host ($row -f 'Family', 'Pass', 'Fail', 'Error', 'Skipped', 'Manual', 'N/A')
+    $row = "{0,-$width}{1,6}{2,6}{3,7}{4,10}{5,9}{6,8}{7,5}"
+    Write-Host ($row -f 'Family', 'Pass', 'Fail', 'Error', 'Accepted', 'Skipped', 'Manual', 'N/A')
     foreach ($grp in @($reqs | Group-Object Family | Sort-Object Name)) {
         $n = foreach ($c in $cols) { @($grp.Group | Where-Object { $_.State -eq $c }).Count }
         Write-Host ($row -f (@($grp.Name) + $n))
     }
     # Then each requirement that needs attention, with only the evidence that didn't pass.
     $refWidth = [math]::Max(14, (@($reqs | ForEach-Object { "$($_.Reference)".Length }) + 0 | Measure-Object -Maximum).Maximum)
-    foreach ($state in 'Fail', 'Error', 'Skipped') {
-        $colour = switch ($state) { 'Fail' { 'Red' } 'Error' { 'Magenta' } default { 'Yellow' } }
+    foreach ($state in 'Fail', 'Error', 'Accepted', 'Skipped') {
+        $colour = switch ($state) { 'Fail' { 'Red' } 'Error' { 'Magenta' } 'Accepted' { 'Cyan' } default { 'Yellow' } }
         foreach ($r in @($reqs | Where-Object { $_.State -eq $state })) {
             Write-Host ("{0,-8} {1,-$refWidth} {2}" -f $state, $r.Reference, $r.Findings) -ForegroundColor $colour
         }
@@ -2539,10 +2699,10 @@ function ConvertTo-HtmlText {
 
 $HtmlStyle = @'
 :root { --bg: #ffffff; --fg: #1d2330; --muted: #5b6475; --line: #d9dde5; --panel: #f4f6f9;
-  --pass: #1e7b45; --fail: #b3261e; --error: #8e24aa; --skipped: #9a6700; --manual: #3d5a99; --na: #6b7280; }
+  --pass: #1e7b45; --fail: #b3261e; --error: #8e24aa; --accepted: #0f6e6e; --skipped: #9a6700; --manual: #3d5a99; --na: #6b7280; }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #14171d; --fg: #e6e9ef; --muted: #9aa3b2; --line: #2c323d; --panel: #1c2028;
-    --pass: #4cc38a; --fail: #ff7b72; --error: #d2a8ff; --skipped: #e3b341; --manual: #8cb4ff; --na: #9ca3af; }
+    --pass: #4cc38a; --fail: #ff7b72; --error: #d2a8ff; --accepted: #5cd6d6; --skipped: #e3b341; --manual: #8cb4ff; --na: #9ca3af; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 24px 16px 48px; background: var(--bg); color: var(--fg);
@@ -2561,7 +2721,7 @@ th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: lef
 th { color: var(--muted); font-weight: 600; }
 td.n { text-align: right; font-variant-numeric: tabular-nums; }
 .state { font-weight: 600; white-space: nowrap; }
-.Pass { color: var(--pass); } .Fail { color: var(--fail); } .Error { color: var(--error); }
+.Pass { color: var(--pass); } .Fail { color: var(--fail); } .Error { color: var(--error); } .Accepted { color: var(--accepted); }
 .Skipped { color: var(--skipped); } .Manual { color: var(--manual); } .NotApplicable { color: var(--na); }
 .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0 12px; }
 .filters label { white-space: nowrap; }
@@ -2609,8 +2769,8 @@ function ConvertTo-HtmlReport {
     param($Evaluation, $Snapshot, $Catalog, [string[]]$Notice = @())
     $meta = Get-Prop $Snapshot 'Meta'
     $reqs = @($Evaluation.Requirements)
-    $order = 'Fail', 'Error', 'Skipped', 'Manual', 'Pass', 'NotApplicable'
-    $label = @{ Fail = 'Fail'; Error = 'Error'; Skipped = 'Skipped'; Manual = 'Manual'; Pass = 'Pass'; NotApplicable = 'Not applicable' }
+    $order = 'Fail', 'Error', 'Accepted', 'Skipped', 'Manual', 'Pass', 'NotApplicable'
+    $label = @{ Fail = 'Fail'; Error = 'Error'; Accepted = 'Accepted deviation'; Skipped = 'Skipped'; Manual = 'Manual'; Pass = 'Pass'; NotApplicable = 'Not applicable' }
     $when = (ConvertTo-DateValue $meta.CollectedUtc).ToString('yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
     $sb = [Text.StringBuilder]::new()
     $title = "$($Catalog.Name) - $($meta.ComputerName)"
@@ -2647,7 +2807,7 @@ function ConvertTo-HtmlReport {
 
     $null = $sb.Append('<h2>Requirements</h2><div class="filters">')
     foreach ($s in $order) {
-        $checked = if ($s -in 'Fail', 'Error', 'Skipped') { ' checked' } else { '' }
+        $checked = if ($s -in 'Fail', 'Error', 'Accepted', 'Skipped') { ' checked' } else { '' }
         $null = $sb.Append("<label><input type=""checkbox"" value=""$s""$checked> $($label[$s])</label>")
     }
     $null = $sb.Append('<select id="family" aria-label="Family"><option value="">All families</option>')
@@ -2815,8 +2975,9 @@ function ConvertTo-XmlText {
     return $sb.ToString()
 }
 
-# Result states as STIG Viewer records them.
-$ChecklistStatus = @{ Pass = 'NotAFinding'; Fail = 'Open'; NotApplicable = 'Not_Applicable' }
+# Result states as STIG Viewer records them. An accepted deviation is still an
+# open finding to STIG Viewer; the comments carry the reason it is accepted.
+$ChecklistStatus = @{ Pass = 'NotAFinding'; Fail = 'Open'; Accepted = 'Open'; NotApplicable = 'Not_Applicable' }
 
 function Get-ChecklistResult {
     # The checklist entry for each rule of the benchmark, by Vuln ID: status,
@@ -3069,7 +3230,7 @@ function Export-ScanReport {
         Checks          = $Evaluation.Checks
         Thresholds      = $Thresholds
     }
-    foreach ($s in 'Fail', 'Error', 'Skipped', 'Manual', 'Pass', 'NotApplicable') {
+    foreach ($s in 'Fail', 'Error', 'Accepted', 'Skipped', 'Manual', 'Pass', 'NotApplicable') {
         $report.Summary[$s] = @($Evaluation.Requirements | Where-Object { $_.State -eq $s }).Count
     }
     if ($IncludeSnapshot) { $report.Snapshot = $Snapshot }
@@ -3134,7 +3295,10 @@ try {
         if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
             throw 'A live scan needs Windows. Use -FromSnapshot to evaluate a saved snapshot elsewhere.'
         }
+        Write-Host "Scanning $($env:COMPUTERNAME) for $($catalog.Name). This usually takes 2 to 5 minutes, longer on a domain controller with a large directory, and changes nothing on the machine."
+        $clock = [Diagnostics.Stopwatch]::StartNew()
         $snapshot = Get-EndpointSnapshot -Targets (Get-CollectionTarget -Catalogs $catalogs -Thresholds $thresholds)
+        Write-Host ('Evidence collected in {0}m {1:00}s.' -f [math]::Floor($clock.Elapsed.TotalMinutes), $clock.Elapsed.Seconds)
     }
     if ($SnapshotPath) {
         $snapshot | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $SnapshotPath -Encoding UTF8
