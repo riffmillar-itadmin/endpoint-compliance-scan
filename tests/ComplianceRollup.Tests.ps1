@@ -183,6 +183,9 @@ Describe 'Roll-up report' {
     }
 
     It 'exits 2 when the folder holds no scan reports' {
+        # Windows PowerShell 5.1 turns a child's stderr into error records, which
+        # the inherited 'Stop' would throw despite 2>$null.
+        $ErrorActionPreference = 'Continue'
         & $Shell -NoProfile -ExecutionPolicy Bypass -File $Rollup -Path (Get-TestFolder) 2>$null | Out-Null
         $LASTEXITCODE | Should -Be 2
     }
