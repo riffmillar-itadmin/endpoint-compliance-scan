@@ -168,6 +168,38 @@ ending in `.records.json`. Combine the files: each record becomes a row. Group b
 `ScanId` for one scan, or by `ComputerName` and `CollectedUtc` for trends. With
 several frameworks scanned, filter on `Framework`.
 
+### Roll-up across machines
+
+When many machines write their reports to one shared folder,
+`New-ComplianceRollup.ps1` combines them into one page per framework. It reads
+the `.json` reports and doesn't scan or re-evaluate anything.
+
+```powershell
+.\New-ComplianceRollup.ps1 -Path \\fileserver\scans
+.\New-ComplianceRollup.ps1 -Path .\Reports -Framework DISA-STIG-WS2025-MS -MaxAge 7 -OutputPath .\Rollup
+```
+
+Each computer counts once per framework, by its latest scan in the folder. For
+each framework it writes `compliance-rollup-<framework>.html` and `.csv` to
+`-OutputPath`, or to the folder it read from:
+
+- **Machines.** Each machine's Fail, Error, Accepted, Skipped, Manual, Pass and
+  N/A counts, its scan date, level and tool version. A scan older than `-MaxAge`
+  days (default 30), one run without elevation, and one with a platform warning
+  are flagged.
+- **Requirements by machine.** Each requirement's state on each machine, with
+  the requirements failing on the most machines first. It can be filtered to
+  requirements with a Fail or Error, by family and by text, and each cell shows
+  its findings when you hover over it. The `.csv` holds the same grid, with a
+  column per machine.
+
+Machines scanned at another level, or with an older catalog, can list different
+requirements. The page says so, and a cell is blank where a machine's scan
+doesn't include the requirement. Like the scan's own reports, the roll-up shows
+counts and states, never a score. `-Recurse` also reads subfolders. Exit code 0
+means the roll-ups were written, and 2 means the folder holds no scan reports
+or they couldn't be written.
+
 ### STIG Viewer checklists
 
 The catalogs hold short titles, not DISA's rule text, so the checklists need the
@@ -371,6 +403,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.12.0 | 2026-10-27 | Roll-up across machines. `New-ComplianceRollup.ps1` reads a folder of scan reports and writes one page and one CSV per framework, using each machine's latest scan. The page lists each machine's counts, flagging stale scans (older than `-MaxAge` days), unelevated scans and platform warnings. A requirement-by-machine grid puts the requirements that fail on the most machines first. The Tests workflow rolls up the runner's reports. |
 | 0.11.2 | 2026-10-27 | The test scripts no longer depend on the PowerShell Gallery alone. If it fails, Pester comes from nuget.org and PSScriptAnalyzer from its GitHub release, each checked against a pinned SHA-256. A local package can be given with `-PackagePath`. An Install-Module failure reported without an exception now counts as a failure. |
 | 0.11.1 | 2026-10-27 | Console output is easier to read. The launch notice and the results header are short blocks set apart in colour, with a warning at launch when the session isn't elevated. Notes and findings wrap between words to the window width, with continuation lines indented under the text, so columns stay aligned. Report files are listed one per line under their folder. A scheduled task or redirected output gets unwrapped lines. |
 | 0.11.0 | 2026-10-27 | Accepted deviations: list a rule, its reason, and optionally the framework, the exact accounts and an expiry date under `Deviations` in `ComplianceScan.local.psd1`. A Fail they cover reports as Accepted, keeping its evidence and the reason in every report; STIG Viewer checklists keep it Open with the reason in Comments, and it doesn't count toward exit code 1. A deviation never accepts an Error, and an account-specific one covers only those exact accounts. A live scan now says at launch how long it usually takes, shows a progress bar per collector at the console, and reports how long collection took. |
