@@ -129,7 +129,8 @@ be evaluated against any of them with `-FromSnapshot`.
 Reports go to `.\Reports` or `-OutputPath`; see [Reports](#reports).
 
 A live scan says at launch that it usually takes 2 to 5 minutes (longer on a
-domain controller with a large directory) and changes nothing. At the console, a
+domain controller with a large directory) and changes nothing, and warns when the
+session isn't elevated. At the console, a
 progress bar names each collector as it runs, such as `Windows features (6 of
 15)`, and the scan reports how long collection took. A scheduled task or CI log
 gets no progress bar.
@@ -360,6 +361,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.11.1 | 2026-10-27 | Console output is easier to read. The launch notice and the results header are short blocks set apart in colour, with a warning at launch when the session isn't elevated. Notes and findings wrap between words to the window width, with continuation lines indented under the text, so columns stay aligned. Report files are listed one per line under their folder. A scheduled task or redirected output gets unwrapped lines. |
 | 0.11.0 | 2026-10-27 | Accepted deviations: list a rule, its reason, and optionally the framework, the exact accounts and an expiry date under `Deviations` in `ComplianceScan.local.psd1`. A Fail they cover reports as Accepted, keeping its evidence and the reason in every report; STIG Viewer checklists keep it Open with the reason in Comments, and it doesn't count toward exit code 1. A deviation never accepts an Error, and an account-specific one covers only those exact accounts. A live scan now says at launch how long it usually takes, shows a progress bar per collector at the console, and reports how long collection took. |
 | 0.10.1 | 2026-10-26 | The features collector falls back to CIM (`Win32_OptionalFeature`) when DISM's `Get-WindowsOptionalFeature` fails, as it can under PowerShell 7 ("Class not registered"). Before, the collector reported an Error and every optional feature rule went with it. |
 | 0.10.0 | 2026-10-26 | DISA Windows PAW STIG V3R3 as `DISA-STIG-PAW`, for Windows 11 privileged access workstations: 24 rules, 7 automated and 2 with evidence for review. New Device Guard collector (code integrity enforcement), and the local accounts collector also records the members of the local privileged groups, through CIM with an ADSI fallback. A new `Local` expectation source runs named endpoint tests for rules that read more than one setting or need judgement. Snapshot schema 5. |
