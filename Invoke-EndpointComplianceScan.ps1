@@ -54,6 +54,8 @@
         compliance-scan-<scan id>-<framework>.html          a self-contained report
         compliance-scan-<scan id>-<framework>.cklb          STIG Viewer 3 checklist (STIGs, with -StigPath)
         compliance-scan-<scan id>-<framework>.ckl           STIG Viewer 2 checklist (STIGs, with -StigPath)
+    New-ComplianceRollup.ps1 combines a folder of these reports from many
+    machines into one page per framework.
 
     Exit codes: 0 no Fail and no Error (accepted deviations included); 1 at least
     one Fail; 2 at least one Error, or the scan could not start. Error wins over Fail because a run with errors
@@ -170,6 +172,9 @@
     0.11.2 2026-10-27  Test scripts install Pester and PSScriptAnalyzer from
                        the PowerShell Gallery, then a second site checked
                        against a pinned SHA-256, then a local package.
+    0.12.0 2026-10-27  New-ComplianceRollup.ps1: one page per framework from a
+                       folder of many machines' reports, with each machine's
+                       latest counts and a requirement by machine grid.
 #>
 
 [CmdletBinding()]
@@ -188,7 +193,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.11.2'
+$ComplianceScanVersion = '0.12.0'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }

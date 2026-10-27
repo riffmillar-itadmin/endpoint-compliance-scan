@@ -61,7 +61,8 @@ jobs:
     # errored, and fails the job. The runner is pinned to Windows Server 2025, a
     # standalone server rather than a domain controller, so it scans with the
     # member server STIG. The other STIG catalogs warn that they were written for
-    # another Windows, which is expected here.
+    # another Windows, which is expected here. Last, the roll-up reads those
+    # reports and must write a page for every framework.
     runs-on: windows-2025
     timeout-minutes: 15
     strategy:
@@ -86,3 +87,7 @@ jobs:
             if errorlevel 2 exit /b 1
           )
           exit /b 0
+
+      - name: Roll up the reports
+        shell: cmd
+        run: ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\New-ComplianceRollup.ps1 -Path "%RUNNER_TEMP%\scan"
