@@ -296,6 +296,8 @@ function Export-ComplianceRollup {
         if ($latest.Count -eq 0) { throw "No scan reports for $($Framework -join ', ') in the folder." }
     }
     if (-not (Test-Path -LiteralPath $Folder)) { $null = New-Item -ItemType Directory -Path $Folder }
+    # .NET resolves a relative path against the process folder, not the PowerShell location.
+    $Folder = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Folder)
     $utf8 = [Text.UTF8Encoding]::new($false)
     @(foreach ($g in ($latest | Group-Object Framework | Sort-Object Name)) {
         $scan = @($g.Group)
