@@ -1772,6 +1772,24 @@ Describe 'Reports' {
         @(Get-ChildItem -LiteralPath $folder).Count | Should -Be 4
     }
 
+    It 'writes a relative -OutputPath under the PowerShell location, not the process folder' {
+        # The roll-up's first run on a PC: .NET resolved .\Reports against the home folder.
+        $here = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'here')
+        $elsewhere = New-Item -ItemType Directory -Path (Join-Path $TestDrive 'elsewhere')
+        $was = [Environment]::CurrentDirectory
+        Push-Location -LiteralPath $here.FullName
+        try {
+            [Environment]::CurrentDirectory = $elsewhere.FullName
+            $files = Export-ScanReport -Evaluation $Eval -Snapshot (Get-Fixture) -Thresholds (Get-Threshold) -Catalog $Catalog -Folder (Join-Path '.' 'out')
+        } finally {
+            [Environment]::CurrentDirectory = $was
+            Pop-Location
+        }
+        @(Get-ChildItem -LiteralPath (Join-Path $here.FullName 'out')).Count | Should -Be 4
+        @(Get-ChildItem -LiteralPath $elsewhere.FullName).Count | Should -Be 0
+        $files | ForEach-Object { [IO.Path]::IsPathRooted($_) | Should -BeTrue }
+    }
+
     It 'writes a self-contained HTML report with every requirement' {
         $html = ConvertTo-HtmlReport $Eval (Get-Fixture) $Catalog
         $html | Should -Match '^<!doctype html>'

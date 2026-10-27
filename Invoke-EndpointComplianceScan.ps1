@@ -175,6 +175,9 @@
     0.12.0 2026-10-27  New-ComplianceRollup.ps1: one page per framework from a
                        folder of many machines' reports, with each machine's
                        latest counts and a requirement by machine grid.
+    0.12.1 2026-10-27  A relative -OutputPath (and the roll-up's -Path) is
+                       written under the current PowerShell folder, not the
+                       process's starting folder.
 #>
 
 [CmdletBinding()]
@@ -193,7 +196,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.12.0'
+$ComplianceScanVersion = '0.12.1'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }
@@ -3306,6 +3309,8 @@ function Export-ScanReport {
     # snapshot against the same framework replaces its reports.
     param($Evaluation, $Snapshot, $Thresholds, $Catalog, [string]$Folder, [switch]$IncludeSnapshot, $Benchmark, [string[]]$Notice = @())
     if (-not (Test-Path -LiteralPath $Folder)) { $null = New-Item -ItemType Directory -Path $Folder }
+    # .NET resolves a relative path against the process folder, not the PowerShell location.
+    $Folder = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Folder)
     $meta = Get-Prop $Snapshot 'Meta'
     $scanId = Get-ScanId $Snapshot
     $framework = "$($Catalog.Id)".ToLowerInvariant() -replace '[^a-z0-9.-]', '_'

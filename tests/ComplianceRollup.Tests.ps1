@@ -182,6 +182,25 @@ Describe 'Roll-up report' {
         @(Get-ChildItem -LiteralPath $out -Name | Sort-Object) | Should -Be @('compliance-rollup-fw-a.csv', 'compliance-rollup-fw-a.html', 'compliance-rollup-fw-b.csv', 'compliance-rollup-fw-b.html')
     }
 
+    It 'writes into a relative folder under the PowerShell location, not the process folder' {
+        # The first run on a PC: .NET resolved .\Reports against the home folder.
+        $here = Get-TestFolder
+        $elsewhere = Get-TestFolder
+        $null = Write-FakeReport $here 'WESTMARK-A' '2026-10-26T10:00:00Z'
+        $was = [Environment]::CurrentDirectory
+        Push-Location -LiteralPath $here
+        try {
+            [Environment]::CurrentDirectory = $elsewhere
+            $written = @(Export-ComplianceRollup -Report @(Read-ScanReport -Folder '.') -Folder (Join-Path '.' 'out') -AsOf $AsOfDate -MaxAge 30)
+        } finally {
+            [Environment]::CurrentDirectory = $was
+            Pop-Location
+        }
+        @(Get-ChildItem -LiteralPath (Join-Path $here 'out') -Name | Sort-Object) | Should -Be @('compliance-rollup-fw-a.csv', 'compliance-rollup-fw-a.html')
+        @(Get-ChildItem -LiteralPath $elsewhere).Count | Should -Be 0
+        $written[0].Files | ForEach-Object { [IO.Path]::IsPathRooted($_) | Should -BeTrue }
+    }
+
     It 'exits 2 when the folder holds no scan reports' {
         # Windows PowerShell 5.1 turns a child's stderr into error records, which
         # the inherited 'Stop' would throw despite 2>$null.
