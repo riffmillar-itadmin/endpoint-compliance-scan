@@ -13,6 +13,7 @@
     StigId = 'Windows_Server_2019_MS_STIG'
     Levels = @('CAT I', 'CAT II', 'CAT III')
     Complete = $true
+    Retired = 'DISA has sunset this STIG, so V3R8 is its final release and it gets no more updates.'
     AppliesTo = @{ ProductTypes = @(3); Builds = @(17763) }
     Thresholds = @{
         LockoutThresholdMax = 3

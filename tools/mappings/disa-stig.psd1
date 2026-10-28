@@ -89,7 +89,8 @@
     # PolicyFallback joins each rule PowerStig splits into a Group Policy value (.a)
     # and the local setting (.b) into one requirement that reads the local setting
     # only when no policy value exists, as the Firewall STIG's checks do. A catalog
-    # without AppliesTo applies to any Windows.
+    # without AppliesTo applies to any Windows. Retired marks a STIG DISA has sunset;
+    # the catalog carries it and the scan says so.
     Catalogs = @(
         @{
             Id = 'DISA-STIG-Win11'
@@ -165,6 +166,7 @@
             Id = 'DISA-STIG-WS2019-MS'
             File = 'disa-stig-ws2019-ms'
             PowerStig = 'WindowsServer-2019-MS-3.8'
+            Retired = 'DISA has sunset this STIG, so V3R8 is its final release and it gets no more updates.'
             DisaBenchmark = 'MS_Windows_Server_2019_STIG'
             NotForRole = '^WN19-DC-'
             Product = 'Windows Server 2019 member server'
@@ -190,6 +192,7 @@
             Id = 'DISA-STIG-WS2019-DC'
             File = 'disa-stig-ws2019-dc'
             PowerStig = 'WindowsServer-2019-DC-3.8'
+            Retired = 'DISA has sunset this STIG, so V3R8 is its final release and it gets no more updates.'
             DisaBenchmark = 'MS_Windows_Server_2019_STIG'
             NotForRole = '^WN19-MS-'
             Product = 'Windows Server 2019 domain controller'

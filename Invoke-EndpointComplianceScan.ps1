@@ -42,8 +42,8 @@
     This is evidence for an assessment, not a verdict. Most requirements in most
     frameworks are procedural or need evidence from outside the endpoint, so the
     report never states that a machine is compliant and never computes a score.
-    Catalogs for copyrighted standards (CIS, PCI DSS) and the HIPAA catalog hold
-    only the requirements an endpoint can show evidence for; the report says so.
+    Catalogs for copyrighted standards (CIS, PCI DSS) hold only the requirements
+    an endpoint can show evidence for; the report says so.
 
     Writes these files per run into -OutputPath, named by scan ID (computer and
     collection time, UTC) so a shared folder of many machines' reports sorts by
@@ -178,6 +178,9 @@
     0.12.1 2026-10-27  A relative -OutputPath (and the roll-up's -Path) is
                        written under the current PowerShell folder, not the
                        process's starting folder.
+    0.13.0 2026-10-28  HIPAA catalog complete (all 65 standards and
+                       specifications). Retired catalogs, such as the Server
+                       2019 STIGs, say so in the scan output and HTML report.
 #>
 
 [CmdletBinding()]
@@ -196,7 +199,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.12.1'
+$ComplianceScanVersion = '0.13.0'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }
@@ -3369,6 +3372,19 @@ function Export-ScanReport {
     return $files
 }
 
+function Get-CatalogNotice {
+    # Notes about the catalog itself, printed after the scan and shown on the HTML report.
+    param($Catalog, [switch]$HasStig)
+    @(
+        if ($Catalog.Contains('Retired') -and $Catalog.Retired) {
+            "Retired STIG: $($Catalog.Retired) Results reflect that final release, not current DISA guidance."
+        }
+        if (-not $HasStig -and $Catalog.Contains('StigId')) {
+            'No STIG Viewer checklists: pass the DISA STIG zip from cyber.mil with -StigPath to write them.'
+        }
+    )
+}
+
 #endregion
 
 # Dot-sourced (as the tests do): define the functions above and stop here.
@@ -3387,13 +3403,11 @@ try {
     }
     # Read the STIG file first, so a wrong one stops the run before the scan.
     $benchmark = $null
-    $notice = @()
     if ($StigPath) {
         $benchmark = Read-StigBenchmark $StigPath
         Assert-StigBenchmark $catalog $benchmark
-    } elseif ($catalog.Contains('StigId')) {
-        $notice += 'No STIG Viewer checklists: pass the DISA STIG zip from cyber.mil with -StigPath to write them.'
     }
+    $notice = @(Get-CatalogNotice $catalog -HasStig:([bool]$StigPath))
 
     $thresholds = Get-ScanThreshold -ExamplePath (Join-Path $root 'ComplianceScan.example.psd1') -Catalog $catalog -OverridePath $override
     if ($override) { Write-Verbose "Thresholds: example, then $($catalog.Id), then $override." }
