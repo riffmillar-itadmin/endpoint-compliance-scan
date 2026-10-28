@@ -263,7 +263,29 @@ Describe 'Framework catalogs' {
     }
 
     It 'marks the partial catalogs as partial' {
-        foreach ($id in 'CIS-v8.1', 'PCI-DSS-4.0.1', 'HIPAA') { (Get-Framework $id).Complete | Should -BeFalse -Because $id }
+        foreach ($id in 'CIS-v8.1', 'PCI-DSS-4.0.1') { (Get-Framework $id).Complete | Should -BeFalse -Because $id }
+    }
+
+    It 'lists every HIPAA Security Rule standard and implementation specification' {
+        $hipaa = Get-Framework 'HIPAA'
+        $hipaa.Complete | Should -BeTrue
+        $ids = @($hipaa.Requirements.Id)
+        $ids.Count | Should -Be 65
+        @($ids | Select-Object -Unique).Count | Should -Be 65
+        @($ids | Where-Object { $_ -like '164.308*' }).Count | Should -Be 30
+        @($ids | Where-Object { $_ -like '164.310*' }).Count | Should -Be 12
+        @($ids | Where-Object { $_ -like '164.312*' }).Count | Should -Be 12
+        @($ids | Where-Object { $_ -like '164.314*' }).Count | Should -Be 6
+        @($ids | Where-Object { $_ -like '164.316*' }).Count | Should -Be 5
+        foreach ($r in $hipaa.Requirements) { $r.Title | Should -Match '\((standard|required|addressable)\)$' -Because $r.Id }
+    }
+
+    It 'marks only the retired Server 2019 STIGs as retired' {
+        foreach ($c in $Catalogs) {
+            $retired = $c.Contains('Retired')
+            $retired | Should -Be ($c.Id -like 'DISA-STIG-WS2019-*') -Because $c.Id
+            if ($retired) { "$($c.Retired)" | Should -Match 'V3R8' }
+        }
     }
 
     It 'uses every check in at least one framework' {
@@ -1770,6 +1792,22 @@ Describe 'Reports' {
         $second = Export-ScanReport -Evaluation $Eval -Snapshot (Get-Fixture) -Thresholds (Get-Threshold) -Catalog $Catalog -Folder $folder
         $second | Should -Be $first
         @(Get-ChildItem -LiteralPath $folder).Count | Should -Be 4
+    }
+
+    It 'says when a STIG is retired, and when no checklist will be written' {
+        $notes = @(Get-CatalogNotice (Get-Framework 'DISA-STIG-WS2019-MS'))
+        $notes.Count | Should -Be 2
+        $notes[0] | Should -BeLike 'Retired STIG: DISA has sunset this STIG*not current DISA guidance.'
+        $notes[1] | Should -BeLike 'No STIG Viewer checklists*'
+        @(Get-CatalogNotice (Get-Framework 'DISA-STIG-WS2019-DC') -HasStig) | Should -BeLike 'Retired STIG:*'
+        @(Get-CatalogNotice (Get-Framework 'DISA-STIG-WS2022-MS') -HasStig).Count | Should -Be 0
+        @(Get-CatalogNotice (Get-Framework 'CMMC')).Count | Should -Be 0
+    }
+
+    It 'shows the retired notice on the HTML report' {
+        $fw = Get-Framework 'DISA-STIG-WS2019-MS'
+        $html = ConvertTo-HtmlReport (Invoke-Evaluation (Get-Fixture) -Level 'CAT III' -For $fw) (Get-Fixture) $fw @(Get-CatalogNotice $fw -HasStig)
+        $html | Should -Match 'Retired STIG: DISA has sunset this STIG'
     }
 
     It 'writes a relative -OutputPath under the PowerShell location, not the process folder' {

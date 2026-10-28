@@ -881,8 +881,9 @@ function Get-StigCatalog {
     $header = (Format-HeaderComment $head) + "`n# Field meanings are in frameworks/README.md."
     $meta = [ordered]@{
         Id = $Entry.Id; Name = "DISA $($Entry.Product) STIG V$($version)R$release"; Source = 'https://public.cyber.mil/stigs/'; StigId = $stig.StigId
-        Levels = @('CAT I', 'CAT II', 'CAT III'); Complete = $true; AppliesTo = $(if ($Entry.Contains('AppliesTo')) { $Entry.AppliesTo }); Thresholds = $Map.Thresholds
+        Levels = @('CAT I', 'CAT II', 'CAT III'); Complete = $true; Retired = $(if ($Entry.Contains('Retired')) { $Entry.Retired }); AppliesTo = $(if ($Entry.Contains('AppliesTo')) { $Entry.AppliesTo }); Thresholds = $Map.Thresholds
     }
+    if (-not $Entry.Contains('Retired')) { $meta.Remove('Retired') }
     if (-not $Entry.Contains('AppliesTo')) { $meta.Remove('AppliesTo') }
     [pscustomobject]@{ Id = $Entry.Id; File = $Entry.File; Text = (ConvertTo-CatalogText $header $meta $reqs); Requirements = $reqs.Count; Note = "$auto automated; $note"; Reworded = @($reworded) }
 }
@@ -927,8 +928,9 @@ function Get-DisaStigCatalog {
     $header = (Format-HeaderComment $head) + "`n# Field meanings are in frameworks/README.md."
     $meta = [ordered]@{
         Id = $Entry.Id; Name = "DISA $($Entry.Product) STIG $have"; Source = 'https://public.cyber.mil/stigs/'; StigId = $bench.Id
-        Levels = @('CAT I', 'CAT II', 'CAT III'); Complete = $true; AppliesTo = $(if ($Entry.Contains('AppliesTo')) { $Entry.AppliesTo }); Thresholds = $Map.Thresholds
+        Levels = @('CAT I', 'CAT II', 'CAT III'); Complete = $true; Retired = $(if ($Entry.Contains('Retired')) { $Entry.Retired }); AppliesTo = $(if ($Entry.Contains('AppliesTo')) { $Entry.AppliesTo }); Thresholds = $Map.Thresholds
     }
+    if (-not $Entry.Contains('Retired')) { $meta.Remove('Retired') }
     if (-not $Entry.Contains('AppliesTo')) { $meta.Remove('AppliesTo') }
     [pscustomobject]@{ Id = $Entry.Id; File = $Entry.File; Text = (ConvertTo-CatalogText $header $meta $reqs); Requirements = $reqs.Count; Note = "$auto automated; DISA $have"; Reworded = @() }
 }

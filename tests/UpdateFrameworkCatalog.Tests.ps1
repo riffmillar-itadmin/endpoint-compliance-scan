@@ -398,6 +398,13 @@ Describe 'STIG catalog from PowerStig' {
         (Read-Catalog $run.Folder 'disa-stig-sample').Contains('AppliesTo') | Should -BeFalse
     }
 
+    It 'writes Retired when the mappings give it, and only then' {
+        $Stig.Contains('Retired') | Should -BeFalse
+        $maps = Copy-FixtureMapping 'disa-stig.psd1' @{ "            AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }" = "            AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }`n            Retired = 'DISA has sunset this STIG.'" }
+        $run = Invoke-Generator -Framework 'DISA-STIG-Sample' -Mappings $maps
+        (Read-Catalog $run.Folder 'disa-stig-sample').Retired | Should -Be 'DISA has sunset this STIG.'
+    }
+
     It 'stops when PolicyFallback meets a split rule that is not a policy value and its local setting' {
         $maps = Copy-FixtureMapping 'disa-stig.psd1' @{ "            AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }" = "            AppliesTo = @{ ProductTypes = @(1); MinBuild = 22000 }`n            PolicyFallback = `$true" }
         { Invoke-Generator -Framework 'DISA-STIG-Sample' -Mappings $maps } | Should -Throw '*PolicyFallback: V-900002 *'

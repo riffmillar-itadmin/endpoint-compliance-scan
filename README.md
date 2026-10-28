@@ -23,7 +23,7 @@ evidence for each requirement.
 | [CIS Controls v8.1](https://www.cisecurity.org/controls/v8-1), endpoint safeguards | `CIS-v8.1` | IG1, IG2 | 18 (partial) | 18 |
 | [NIST Cybersecurity Framework 2.0](https://www.nist.gov/cyberframework) | `NIST-CSF-2.0` | CSF | 106 | 11 |
 | [PCI DSS v4.0.1](https://www.pcisecuritystandards.org/document_library/), endpoint requirements | `PCI-DSS-4.0.1` | PCI | 22 (partial) | 22 |
-| [HIPAA Security Rule](https://www.hhs.gov/hipaa/for-professionals/security/), endpoint safeguards | `HIPAA` | HIPAA | 17 (partial) | 14 |
+| [HIPAA Security Rule](https://www.hhs.gov/hipaa/for-professionals/security/) | `HIPAA` | HIPAA | 65 | 14 |
 
 It is evidence for an assessment, not a verdict. Most requirements in most
 frameworks are procedural, or need evidence from outside the endpoint (identity
@@ -31,10 +31,11 @@ provider, network, facility, records). The report marks those Manual and says
 what an assessor would look at instead. It never states that a machine is
 compliant and never computes a score.
 
-The CIS, PCI DSS and HIPAA catalogs are partial: they list only the requirements
-an endpoint can show evidence for, with titles written for this project. The
+The CIS and PCI DSS catalogs are partial: they list only the requirements an
+endpoint can show evidence for, with titles written for this project. The
 standards themselves have the authoritative text, and every report from a
-partial catalog says it is a subset. [frameworks/README.md](frameworks/README.md)
+partial catalog says it is a subset. DISA has sunset the Server 2019 STIG, so
+its catalogs stay at V3R8, its final release, and those scans say so. [frameworks/README.md](frameworks/README.md)
 has the sources and the catalog format.
 
 Runs on Windows PowerShell 5.1 and PowerShell 7. No modules to install.
@@ -403,6 +404,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.13.0 | 2026-10-28 | The HIPAA catalog is complete: every standard and implementation specification of the Security Rule (164.308 to 164.316), 65 in all, with the administrative, physical and organizational ones Manual. A catalog can be marked `Retired`; the Server 2019 STIGs are, and their scans and HTML reports say that V3R8 is DISA's final release. |
 | 0.12.1 | 2026-10-27 | A relative folder such as `.\Reports`, given to the scanner's `-OutputPath` or the roll-up's `-Path` or `-OutputPath`, is now written under the current PowerShell folder. Before, it went under the folder PowerShell started in (often the home folder), or failed if that folder had no such subfolder. |
 | 0.12.0 | 2026-10-27 | Roll-up across machines. `New-ComplianceRollup.ps1` reads a folder of scan reports and writes one page and one CSV per framework, using each machine's latest scan. The page lists each machine's counts, flagging stale scans (older than `-MaxAge` days), unelevated scans and platform warnings. A requirement-by-machine grid puts the requirements that fail on the most machines first. The Tests workflow rolls up the runner's reports. |
 | 0.11.2 | 2026-10-27 | The test scripts no longer depend on the PowerShell Gallery alone. If it fails, Pester comes from nuget.org and PSScriptAnalyzer from its GitHub release, each checked against a pinned SHA-256. A local package can be given with `-PackagePath`. An Install-Module failure reported without an exception now counts as a failure. |
