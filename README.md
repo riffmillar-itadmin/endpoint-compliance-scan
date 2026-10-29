@@ -181,18 +181,33 @@ the `.json` reports and doesn't scan or re-evaluate anything.
 ```
 
 Each computer counts once per framework, by its latest scan in the folder. For
-each framework it writes `compliance-rollup-<framework>.html` and `.csv` to
-`-OutputPath`, or to the folder it read from:
+each framework it writes `compliance-rollup-<framework>.html`, `.csv` and
+`-trend.csv` to `-OutputPath`, or to the folder it read from:
 
 - **Machines.** Each machine's Fail, Error, Accepted, Skipped, Manual, Pass and
   N/A counts, its scan date, level and tool version. A scan older than `-MaxAge`
   days (default 30), one run without elevation, and one with a platform warning
-  are flagged.
+  are flagged. A small trend line shows its Fail and Error counts across its
+  scans of the last `-TrendDays` days (default 90), next to the change since its
+  previous scan.
+- **All machines, week by week.** Total Fail and Error at the end of each week,
+  each machine counted by its latest scan at that time, with the numbers in a
+  table below the chart.
+- **Changes since the previous scan.** For each machine, the requirements that
+  now Fail or Error and the ones that no longer do.
 - **Requirements by machine.** Each requirement's state on each machine, with
   the requirements failing on the most machines first. It can be filtered to
   requirements with a Fail or Error, by family and by text, and each cell shows
   its findings when you hover over it. The `.csv` holds the same grid, with a
   column per machine.
+- **Trend CSV.** `-trend.csv` has one row per scan in the trend window:
+  `Computer`, `CollectedUtc`, `Level`, `Version`, `IsElevated`, `Requirements`,
+  a count per state, and `ComparableWithPrevious` (blank for a machine's first
+  scan, then `Yes` or `No`). It suits Power BI and other tools.
+
+Counts compare only between scans at the same level that list the same
+requirements. Where that changes, the machine's trend line breaks, the page
+names the machine, and the change is marked "not comparable".
 
 Machines scanned at another level, or with an older catalog, can list different
 requirements. The page says so, and a cell is blank where a machine's scan
@@ -404,6 +419,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.14.0 | 2026-10-28 | Roll-up trends. The roll-up uses every scan in the folder from the last `-TrendDays` days (default 90): each machine gets a Fail and Error trend line and its change since the previous scan, a week-by-week chart totals all machines, and a table lists the requirements that newly Fail or Error, or no longer do. A new `-trend.csv` has one row per scan. Trend lines break where a level or requirement list changes, and the page says so. |
 | 0.13.0 | 2026-10-28 | The HIPAA catalog is complete: every standard and implementation specification of the Security Rule (164.308 to 164.316), 65 in all, with the administrative, physical and organizational ones Manual. A catalog can be marked `Retired`; the Server 2019 STIGs are, and their scans and HTML reports say that V3R8 is DISA's final release. |
 | 0.12.1 | 2026-10-27 | A relative folder such as `.\Reports`, given to the scanner's `-OutputPath` or the roll-up's `-Path` or `-OutputPath`, is now written under the current PowerShell folder. Before, it went under the folder PowerShell started in (often the home folder), or failed if that folder had no such subfolder. |
 | 0.12.0 | 2026-10-27 | Roll-up across machines. `New-ComplianceRollup.ps1` reads a folder of scan reports and writes one page and one CSV per framework, using each machine's latest scan. The page lists each machine's counts, flagging stale scans (older than `-MaxAge` days), unelevated scans and platform warnings. A requirement-by-machine grid puts the requirements that fail on the most machines first. The Tests workflow rolls up the runner's reports. |
