@@ -181,6 +181,9 @@
     0.13.0 2026-10-28  HIPAA catalog complete (all 65 standards and
                        specifications). Retired catalogs, such as the Server
                        2019 STIGs, say so in the scan output and HTML report.
+    0.14.0 2026-10-28  Roll-up trends: per-machine trend lines and changes
+                       since the previous scan, a weekly chart for all
+                       machines, and a trend CSV with one row per scan.
 #>
 
 [CmdletBinding()]
@@ -199,7 +202,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.13.0'
+$ComplianceScanVersion = '0.14.0'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }

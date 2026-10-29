@@ -179,7 +179,7 @@ Describe 'Roll-up report' {
         $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-26T10:00:00Z' -Framework 'FW-B'
         & $Shell -NoProfile -ExecutionPolicy Bypass -File $Rollup -Path $dir -OutputPath $out -Framework 'FW-A,FW-B' | Out-Null
         $LASTEXITCODE | Should -Be 0
-        @(Get-ChildItem -LiteralPath $out -Name | Sort-Object) | Should -Be @('compliance-rollup-fw-a.csv', 'compliance-rollup-fw-a.html', 'compliance-rollup-fw-b.csv', 'compliance-rollup-fw-b.html')
+        @(Get-ChildItem -LiteralPath $out -Name | Sort-Object) | Should -Be @(@('compliance-rollup-fw-a-trend.csv', 'compliance-rollup-fw-a.csv', 'compliance-rollup-fw-a.html', 'compliance-rollup-fw-b-trend.csv', 'compliance-rollup-fw-b.csv', 'compliance-rollup-fw-b.html') | Sort-Object)
     }
 
     It 'writes into a relative folder under the PowerShell location, not the process folder' {
@@ -196,7 +196,7 @@ Describe 'Roll-up report' {
             [Environment]::CurrentDirectory = $was
             Pop-Location
         }
-        @(Get-ChildItem -LiteralPath (Join-Path $here 'out') -Name | Sort-Object) | Should -Be @('compliance-rollup-fw-a.csv', 'compliance-rollup-fw-a.html')
+        @(Get-ChildItem -LiteralPath (Join-Path $here 'out') -Name | Sort-Object) | Should -Be @(@('compliance-rollup-fw-a-trend.csv', 'compliance-rollup-fw-a.csv', 'compliance-rollup-fw-a.html') | Sort-Object)
         @(Get-ChildItem -LiteralPath $elsewhere).Count | Should -Be 0
         $written[0].Files | ForEach-Object { [IO.Path]::IsPathRooted($_) | Should -BeTrue }
     }
@@ -218,5 +218,151 @@ Describe 'Roll-up report' {
         $written[0].Framework | Should -Be 'CMMC'
         $written[0].Machines | Should -Be 1
         (Get-Content -LiteralPath $written[0].Files[0] -Raw) | Should -BeLike '*WESTMARK-PC01*'
+    }
+}
+
+Describe 'Roll-up trends' {
+    BeforeAll {
+        function Get-TestScan {
+            # Reads a folder and returns its reports, the latest FW-A scan per machine, and
+            # their history, as the roll-up does for one framework.
+            param([string]$Folder, [int]$TrendDays = 90)
+            $reports = @(Read-ScanReport -Folder $Folder)
+            $latest = @(Select-LatestScan $reports | Where-Object Framework -eq 'FW-A')
+            [pscustomobject]@{ Reports = $reports; Latest = $latest; History = (Get-ScanHistory -Report $reports -Latest $latest -AsOf $AsOfDate -TrendDays $TrendDays) }
+        }
+    }
+
+    It 'takes each machine''s scans within -TrendDays, oldest first, whatever the name''s case' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-06-01T10:00:00Z'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-01T10:00:00Z'
+        $null = Write-FakeReport $dir 'westmark-a' '2026-10-20T10:00:00Z'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-20T10:00:00Z' -Framework 'FW-B'
+        $t = Get-TestScan $dir
+        @($t.History.Keys).Count | Should -Be 1
+        @($t.History['WESTMARK-A'].CollectedUtc | ForEach-Object { $_.ToString('yyyy-MM-dd') }) | Should -Be @('2026-10-01', '2026-10-20')
+    }
+
+    It 'keeps a machine''s latest scan even when it is older than -TrendDays' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-05-01T10:00:00Z'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-06-01T10:00:00Z'
+        $t = Get-TestScan $dir
+        @($t.History['WESTMARK-A']).Count | Should -Be 1
+        Get-ScanChange $t.History['WESTMARK-A'] | Should -BeNullOrEmpty
+    }
+
+    It 'lists requirements that newly fail and ones that no longer do' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-10T10:00:00Z' -Fail 'R-1', 'R-2'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-20T10:00:00Z' -Fail 'R-2', 'R-3'
+        $c = Get-ScanChange (Get-TestScan $dir).History['WESTMARK-A']
+        $c.Comparable | Should -BeTrue
+        @($c.NewlyFailing.Requirement) | Should -Be @('R-3')
+        @($c.Fixed.Requirement) | Should -Be @('R-1')
+    }
+
+    It 'compares only requirements in both scans, and says when the lists differ' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-10T10:00:00Z' -Fail 'R-4' -Requirement 'R-1', 'R-2', 'R-4'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-20T10:00:00Z' -Fail 'R-3' -Requirement 'R-1', 'R-2', 'R-3'
+        $c = Get-ScanChange (Get-TestScan $dir).History['WESTMARK-A']
+        $c.Comparable | Should -BeFalse
+        @($c.NewlyFailing).Count | Should -Be 0
+        @($c.Fixed).Count | Should -Be 0
+        Format-ScanChange $c | Should -Be 'Fail 1 &rarr; 1 (not comparable)'
+    }
+
+    It 'breaks the trend where the level changes, and names the machine' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-01T10:00:00Z' -Level 'L1'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-10T10:00:00Z' -Level 'L2'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-20T10:00:00Z' -Level 'L2'
+        $null = Write-FakeReport $dir 'WESTMARK-B' '2026-10-10T10:00:00Z'
+        $null = Write-FakeReport $dir 'WESTMARK-B' '2026-10-20T10:00:00Z'
+        $t = Get-TestScan $dir
+        $points = @(Get-ScanPoint $t.History['WESTMARK-A'])
+        @($points.First) | Should -Be @($true, $false, $false)
+        @($points.Comparable) | Should -Be @($false, $false, $true)
+        @(Get-TrendNotice $t.History) | Should -Be "Counts don't compare across a change of level or requirement list, so the trend lines break there: WESTMARK-A."
+    }
+
+    It 'says nothing about breaks when every machine''s scans compare' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-10T10:00:00Z'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-20T10:00:00Z' -Fail 'R-1'
+        @(Get-TrendNotice (Get-TestScan $dir).History).Count | Should -Be 0
+    }
+
+    It 'totals each week by every machine''s latest scan at the week''s end' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-01T10:00:00Z' -Fail 'R-1', 'R-2', 'R-3'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-25T10:00:00Z' -Fail 'R-1'
+        $null = Write-FakeReport $dir 'WESTMARK-B' '2026-10-14T10:00:00Z' -Fail 'R-4'
+        $t = Get-TestScan $dir
+        $weeks = @(Get-FleetWeek -Report $t.Reports -Latest $t.Latest -AsOf $AsOfDate -TrendDays 28)
+        @($weeks.WeekEnding | ForEach-Object { $_.ToString('yyyy-MM-dd') }) | Should -Be @('2026-10-06', '2026-10-13', '2026-10-20', '2026-10-27')
+        @($weeks.Machines) | Should -Be @(1, 1, 2, 2)
+        @($weeks.Fail) | Should -Be @(3, 3, 4, 2)
+    }
+
+    It 'writes one trend CSV row per scan, saying whether it compares with the one before' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-B' '2026-10-20T10:00:00Z'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-01T10:00:00Z' -Level 'L1'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-10T10:00:00Z' -Fail 'R-1'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-20T10:00:00Z'
+        $rows = @(ConvertTo-RollupTrendRow (Get-TestScan $dir).History)
+        @($rows[0].PSObject.Properties.Name) | Should -Be @('Computer', 'CollectedUtc', 'Level', 'Version', 'IsElevated', 'Requirements', 'Fail', 'Error', 'Accepted', 'Skipped', 'Manual', 'Pass', 'NotApplicable', 'ComparableWithPrevious')
+        @($rows.Computer) | Should -Be @('WESTMARK-A', 'WESTMARK-A', 'WESTMARK-A', 'WESTMARK-B')
+        @($rows.CollectedUtc)[1] | Should -Be '2026-10-10T10:00:00Z'
+        @($rows.Fail) | Should -Be @(0, 1, 0, 0)
+        @($rows.ComparableWithPrevious) | Should -Be @('', 'No', 'Yes', '')
+    }
+
+    It 'draws a broken line as separate runs and a lone point as a dot' {
+        $svg = ConvertTo-SvgSeries -X 0, 10, 20, 30 -Y 5, 5, 5, 5 -Break $false, $false, $true, $false -Class 'Fail'
+        $svg | Should -Be '<g class="Fail"><polyline points="0,5 10,5" /><polyline points="20,5 30,5" /></g>'
+        ConvertTo-SvgSeries -X 0, 10 -Y 5, 5 -Break $false, $true -Class 'Error' | Should -Match '<circle cx="10" cy="5" r="1.8" />'
+    }
+
+    It 'breaks a machine''s trend line at a scan that doesn''t compare with the one before' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-01T10:00:00Z' -Level 'L1' -Fail 'R-1'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-10T10:00:00Z' -Fail 'R-1', 'R-2'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-20T10:00:00Z' -Fail 'R-2'
+        $points = @(Get-ScanPoint (Get-TestScan $dir).History['WESTMARK-A'])
+        $svg = ConvertTo-TrendChart -Point $points -Width 120 -Height 28 -Label 'WESTMARK-A'
+        $fail = [regex]::Match($svg, '<g class="Fail">(.*?)</g>').Groups[1].Value
+        ([regex]::Matches($fail, '<circle ')).Count | Should -Be 1
+        ([regex]::Matches($fail, '<polyline ')).Count | Should -Be 1
+        $svg | Should -Match '<title>WESTMARK-A</title>'
+    }
+
+    It 'shows trend lines, changes and the weekly chart on the page' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-10T10:00:00Z' -Fail 'R-1', 'R-2'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-20T10:00:00Z' -Fail 'R-2', 'R-3' -Title 'Mind <this>'
+        $null = Write-FakeReport $dir 'WESTMARK-B' '2026-10-20T10:00:00Z'
+        $written = Invoke-TestRollup $dir
+        $html = Get-Content -LiteralPath $written[0].Files[0] -Raw
+        $html | Should -Match '<svg class="trend" width="120"'
+        $html | Should -Match 'Fail 2 &rarr; 2'
+        $html | Should -Match 'No earlier scan in the trend window'
+        $html | Should -Match 'All machines, week by week'
+        $html | Should -Match '<b>R-3</b> Mind &lt;this&gt; R-3</td><td class="list">.*<b>R-1</b>'
+        $written[0].Scans | Should -Be 3
+        $written[0].Files[2] | Should -BeLike '*compliance-rollup-fw-a-trend.csv'
+        @(Import-Csv -LiteralPath $written[0].Files[2]).Count | Should -Be 3
+    }
+
+    It 'says so when no requirement changed state' {
+        $dir = Get-TestFolder
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-10T10:00:00Z' -Fail 'R-1'
+        $null = Write-FakeReport $dir 'WESTMARK-A' '2026-10-20T10:00:00Z' -Fail 'R-1'
+        $html = Get-Content -LiteralPath (Invoke-TestRollup $dir)[0].Files[0] -Raw
+        $html | Should -Match 'No requirement changed between Fail or Error and any other state'
+        $html | Should -Not -Match 'Now Fail or Error'
     }
 }
