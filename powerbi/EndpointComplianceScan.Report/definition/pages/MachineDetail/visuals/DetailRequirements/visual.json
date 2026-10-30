@@ -1,0 +1,203 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "DetailRequirements",
+  "position": {
+    "x": 16,
+    "y": 192,
+    "width": 1248,
+    "height": 512,
+    "z": 6000,
+    "tabOrder": 6000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "FrameworkName"
+                }
+              },
+              "queryRef": "Scans.FrameworkName",
+              "nativeQueryRef": "Framework",
+              "displayName": "Framework"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Records"
+                    }
+                  },
+                  "Property": "Reference"
+                }
+              },
+              "queryRef": "Records.Reference",
+              "nativeQueryRef": "Reference"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Records"
+                    }
+                  },
+                  "Property": "Title"
+                }
+              },
+              "queryRef": "Records.Title",
+              "nativeQueryRef": "Title"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Records"
+                    }
+                  },
+                  "Property": "State"
+                }
+              },
+              "queryRef": "Records.State",
+              "nativeQueryRef": "State"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Records"
+                    }
+                  },
+                  "Property": "Findings"
+                }
+              },
+              "queryRef": "Records.Findings",
+              "nativeQueryRef": "Findings"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Records"
+                    }
+                  },
+                  "Property": "Evidence"
+                }
+              },
+              "queryRef": "Records.Evidence",
+              "nativeQueryRef": "Evidence"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Records"
+                    }
+                  },
+                  "Property": "Note"
+                }
+              },
+              "queryRef": "Records.Note",
+              "nativeQueryRef": "Note"
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Column": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "Records"
+                  }
+                },
+                "Property": "State"
+              }
+            },
+            "direction": "Ascending"
+          }
+        ]
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "objects": {
+      "total": [
+        {
+          "properties": {
+            "totals": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "values": [
+        {
+          "properties": {
+            "fontSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "11D"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "columnHeaders": [
+        {
+          "properties": {
+            "fontSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "11D"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Requirements'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

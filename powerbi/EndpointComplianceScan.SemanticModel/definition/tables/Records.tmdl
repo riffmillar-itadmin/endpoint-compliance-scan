@@ -1,0 +1,259 @@
+/// One row per requirement per scan, read from every .records.json file in ReportFolder.
+table Records
+	lineageTag: fe407b41-d776-58cd-bbe4-f9b8a71a91d8
+
+	/// F Fail, E Error, A Accepted, S Skipped, M Manual, P Pass, - N/A. Blank when more than one scan is in context.
+	measure 'State code' = SWITCH(SELECTEDVALUE(Records[State]), "Fail", "F", "Error", "E", "Accepted", "A", "Skipped", "S", "Manual", "M", "Pass", "P", "NotApplicable", "-")
+		lineageTag: 4e3cf842-bef9-58dd-9ec4-bfe4092e2dd4
+
+	/// Scans in context where the requirement is Fail or Error.
+	measure 'Machines failing' = CALCULATE(DISTINCTCOUNT(Records[ScanKey]), Records[State] IN {"Fail", "Error"})
+		formatString: 0
+		lineageTag: a6c60639-9306-5fd7-9376-8fd850e0d1d4
+
+	column ScanKey
+		dataType: string
+		isHidden
+		lineageTag: ce4685f6-9a94-5428-aaee-f77cc4499de1
+		summarizeBy: none
+		sourceColumn: ScanKey
+
+		annotation SummarizationSetBy = User
+
+	column ScanId
+		dataType: string
+		isHidden
+		lineageTag: db5a17ed-7f3a-5b2a-85c3-5b52dba3b3c0
+		summarizeBy: none
+		sourceColumn: ScanId
+
+		annotation SummarizationSetBy = User
+
+	column ComputerName
+		dataType: string
+		isHidden
+		lineageTag: 7ff84bfd-dc73-5b94-8c4d-6f35bee1f187
+		summarizeBy: none
+		sourceColumn: ComputerName
+
+		annotation SummarizationSetBy = User
+
+	column CollectedUtc
+		dataType: dateTime
+		isHidden
+		formatString: yyyy-mm-dd hh:nn
+		lineageTag: b33cd66a-7111-5c7c-9323-0a758500fb7c
+		summarizeBy: none
+		sourceColumn: CollectedUtc
+
+		annotation SummarizationSetBy = User
+
+	column OSCaption
+		dataType: string
+		isHidden
+		lineageTag: cf866d66-41d6-5906-8945-2e5e8be550aa
+		summarizeBy: none
+		sourceColumn: OSCaption
+
+		annotation SummarizationSetBy = User
+
+	column OSVersion
+		dataType: string
+		isHidden
+		lineageTag: 98c534d7-3623-5b98-aab2-85381ef70517
+		summarizeBy: none
+		sourceColumn: OSVersion
+
+		annotation SummarizationSetBy = User
+
+	column ProductType
+		dataType: int64
+		isHidden
+		lineageTag: 207920c2-fdac-547d-add7-c9d32710d75a
+		summarizeBy: none
+		sourceColumn: ProductType
+
+		annotation SummarizationSetBy = User
+
+	column PartOfDomain
+		dataType: boolean
+		isHidden
+		lineageTag: 1a00e172-e1e6-51a3-b127-5305e12ac8cb
+		summarizeBy: none
+		sourceColumn: PartOfDomain
+
+		annotation SummarizationSetBy = User
+
+	column IsElevated
+		dataType: boolean
+		isHidden
+		lineageTag: 673a2e59-e10d-5bf0-a1a5-c57359085716
+		summarizeBy: none
+		sourceColumn: IsElevated
+
+		annotation SummarizationSetBy = User
+
+	column ToolVersion
+		dataType: string
+		isHidden
+		lineageTag: 8336c2a7-3160-5c10-9f42-49029544e1d7
+		summarizeBy: none
+		sourceColumn: ToolVersion
+
+		annotation SummarizationSetBy = User
+
+	column Framework
+		dataType: string
+		isHidden
+		lineageTag: d7a2202c-c737-5a6c-8f6e-573972041407
+		summarizeBy: none
+		sourceColumn: Framework
+
+		annotation SummarizationSetBy = User
+
+	column FrameworkName
+		dataType: string
+		isHidden
+		lineageTag: 86517258-18e6-5d2f-823f-015984b073e8
+		summarizeBy: none
+		sourceColumn: FrameworkName
+
+		annotation SummarizationSetBy = User
+
+	column FrameworkLevel
+		dataType: string
+		isHidden
+		lineageTag: eb586e04-20c7-5d39-9f4e-832ed9ea60be
+		summarizeBy: none
+		sourceColumn: FrameworkLevel
+
+		annotation SummarizationSetBy = User
+
+	column CatalogComplete
+		dataType: boolean
+		isHidden
+		lineageTag: f9baa30f-5243-53a8-bcdb-fd9d14481dad
+		summarizeBy: none
+		sourceColumn: CatalogComplete
+
+		annotation SummarizationSetBy = User
+
+	column PlatformWarning
+		dataType: string
+		isHidden
+		lineageTag: 22b10802-2821-5822-9599-1c35a1d0c180
+		summarizeBy: none
+		sourceColumn: PlatformWarning
+
+		annotation SummarizationSetBy = User
+
+	column Requirement
+		dataType: string
+		lineageTag: 6cafcf36-6d20-5da8-a3ef-51e9b7543856
+		summarizeBy: none
+		sourceColumn: Requirement
+
+		annotation SummarizationSetBy = User
+
+	column Reference
+		dataType: string
+		lineageTag: 78a527b3-af3a-51c1-accb-6cc51e0b8265
+		summarizeBy: none
+		sourceColumn: Reference
+
+		annotation SummarizationSetBy = User
+
+	column RequirementLevel
+		dataType: string
+		lineageTag: 8146662e-9588-5104-84fe-339d128ed9da
+		summarizeBy: none
+		sourceColumn: RequirementLevel
+
+		annotation SummarizationSetBy = User
+
+	column Family
+		dataType: string
+		lineageTag: 110a3f51-c3e9-5c49-a1f4-1b5d6ca92d36
+		summarizeBy: none
+		sourceColumn: Family
+
+		annotation SummarizationSetBy = User
+
+	column Title
+		dataType: string
+		lineageTag: e64d9d2b-28df-5302-86d9-37364da9d7f0
+		summarizeBy: none
+		sourceColumn: Title
+
+		annotation SummarizationSetBy = User
+
+	column State
+		dataType: string
+		lineageTag: beec9a53-75d8-5a5f-9217-3218b743e3e7
+		summarizeBy: none
+		sourceColumn: State
+
+		annotation SummarizationSetBy = User
+
+	column Checks
+		dataType: string
+		lineageTag: 697d643f-53ca-5988-a525-14e8f043d77d
+		summarizeBy: none
+		sourceColumn: Checks
+
+		annotation SummarizationSetBy = User
+
+	column Findings
+		dataType: string
+		lineageTag: 655cb7ef-0bd4-50ac-80f8-8361e24613f4
+		summarizeBy: none
+		sourceColumn: Findings
+
+		annotation SummarizationSetBy = User
+
+	column Evidence
+		dataType: string
+		lineageTag: f498758a-13fa-5cba-bb4f-276d5dfbfa72
+		summarizeBy: none
+		sourceColumn: Evidence
+
+		annotation SummarizationSetBy = User
+
+	column Note
+		dataType: string
+		lineageTag: 76e35600-c259-575e-a044-cfb2f119a3fd
+		summarizeBy: none
+		sourceColumn: Note
+
+		annotation SummarizationSetBy = User
+
+	/// Reference and title, for lists and the grid.
+	column RequirementLabel
+		dataType: string
+		lineageTag: b0bc0522-e4ec-548b-9742-8a2b1a6548f0
+		summarizeBy: none
+		sourceColumn: RequirementLabel
+
+		annotation SummarizationSetBy = User
+
+	partition Records = m
+		mode: import
+		source =
+				let
+				    Files = Folder.Files(ReportFolder),
+				    ReportFiles = Table.SelectRows(Files, each Text.EndsWith(Text.Lower([Name]), ".records.json")),
+				    Checked = if Table.IsEmpty(ReportFiles)
+				        then error Error.Record("No scan reports", "No .records.json files in " & ReportFolder & ". Change the ReportFolder parameter.")
+				        else ReportFiles,
+				    Parsed = Table.AddColumn(Checked, "Rows", each let d = Json.Document([Content]) in if d is list then d else {d}),
+				    Rows = Table.ExpandListColumn(Table.SelectColumns(Parsed, {"Rows"}), "Rows"),
+				    Fields = Table.ExpandRecordColumn(Rows, "Rows", {"ScanId", "ComputerName", "CollectedUtc", "OSCaption", "OSVersion", "ProductType", "PartOfDomain", "IsElevated", "ToolVersion", "Framework", "FrameworkName", "FrameworkLevel", "CatalogComplete", "PlatformWarning", "Requirement", "Reference", "RequirementLevel", "Family", "Title", "State", "Checks", "Findings", "Evidence", "Note"}),
+				    Typed = Table.TransformColumnTypes(Fields, {{"ScanId", type text}, {"ComputerName", type text}, {"OSCaption", type text}, {"OSVersion", type text}, {"ProductType", Int64.Type}, {"PartOfDomain", type logical}, {"IsElevated", type logical}, {"ToolVersion", type text}, {"Framework", type text}, {"FrameworkName", type text}, {"FrameworkLevel", type text}, {"CatalogComplete", type logical}, {"PlatformWarning", type text}, {"Requirement", type text}, {"Reference", type text}, {"RequirementLevel", type text}, {"Family", type text}, {"Title", type text}, {"State", type text}, {"Checks", type text}, {"Findings", type text}, {"Evidence", type text}, {"Note", type text}}),
+				    Collected = Table.TransformColumns(Typed, {{"CollectedUtc", each DateTimeZone.RemoveZone(DateTimeZone.ToUtc(DateTimeZone.From(_))), type datetime}}),
+				    Keyed = Table.AddColumn(Collected, "ScanKey", each [ScanId] & "|" & [Framework], type text),
+				    Labelled = Table.AddColumn(Keyed, "RequirementLabel", each Text.Combine(List.Select({[Reference], [Title]}, each _ <> null and _ <> ""), " "), type text)
+				in
+				    Labelled
+
+	annotation PBI_ResultType = Table
+

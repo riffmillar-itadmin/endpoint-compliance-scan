@@ -1,0 +1,31 @@
+/// One row per framework, for the Framework slicers.
+table Frameworks
+	lineageTag: 227da15b-ed91-58a8-8bc9-cbf26c8f167a
+
+	column Framework
+		dataType: string
+		isHidden
+		lineageTag: 7cdffcb2-798d-51d9-94bc-8b493147b287
+		summarizeBy: none
+		sourceColumn: Framework
+
+		annotation SummarizationSetBy = User
+
+	column FrameworkName
+		dataType: string
+		lineageTag: abcb6b05-4897-5181-9af0-664b94752d4b
+		summarizeBy: none
+		sourceColumn: FrameworkName
+
+		annotation SummarizationSetBy = User
+
+	partition Frameworks = m
+		mode: import
+		source =
+				let
+				    Grouped = Table.Group(Scans, {"Framework"}, {{"FrameworkName", each List.Max([FrameworkName]), type text}})
+				in
+				    Grouped
+
+	annotation PBI_ResultType = Table
+

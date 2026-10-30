@@ -1,0 +1,18 @@
+/// Folder that holds the scan reports. Subfolders are read too.
+expression ReportFolder = "\\fileserver\scans" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 3a65883b-8497-53a1-860c-f717f846e760
+
+	annotation PBI_ResultType = Text
+
+/// A latest scan older than this many days is flagged Stale.
+expression StaleDays = 30 meta [IsParameterQuery=true, Type="Number", IsParameterQueryRequired=true]
+	lineageTag: 0051fc93-4d82-5643-8fc4-a886fdeb9522
+
+	annotation PBI_ResultType = Number
+
+/// Days of scans the Trends page shows, counting back from the refresh.
+expression TrendDays = 90 meta [IsParameterQuery=true, Type="Number", IsParameterQueryRequired=true]
+	lineageTag: 51225ef1-b40f-5667-b262-565e281d0440
+
+	annotation PBI_ResultType = Number
+

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.14.0/schema.json",
+  "name": "OverviewLevel",
+  "position": {
+    "x": 1036,
+    "y": 8,
+    "z": 3000,
+    "height": 64,
+    "width": 228,
+    "tabOrder": 3000
+  },
+  "visual": {
+    "visualType": "slicer",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Level"
+                }
+              },
+              "queryRef": "Scans.Level",
+              "nativeQueryRef": "Level",
+              "active": true,
+              "displayName": "Level"
+            }
+          ]
+        }
+      }
+    },
+    "objects": {
+      "data": [
+        {
+          "properties": {
+            "mode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Dropdown'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

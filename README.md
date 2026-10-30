@@ -163,11 +163,49 @@ records.
 
 ### Power BI
 
-Point every machine's `-OutputPath` at one shared folder. In Power BI, choose
-Get data, then Folder, pick that folder, and filter the file list to names
-ending in `.records.json`. Combine the files: each record becomes a row. Group by
-`ScanId` for one scan, or by `ComputerName` and `CollectedUtc` for trends. With
-several frameworks scanned, filter on `Framework`.
+Point every machine's `-OutputPath` at one shared folder. The Power BI template
+reads every `.records.json` in it, subfolders included, and needs nothing else:
+not the roll-up, and no account. [Power BI Desktop](https://powerbi.microsoft.com/desktop/)
+is free and works without signing in.
+
+Download `EndpointComplianceScan.pbit` from the [latest release](../../releases/latest)
+and open it. Power BI asks for three parameters:
+
+| Parameter | Default | What it does |
+| --- | --- | --- |
+| `ReportFolder` | `\\fileserver\scans` | The folder that holds the scan reports. |
+| `StaleDays` | 30 | A latest scan older than this is flagged Stale. |
+| `TrendDays` | 90 | Days of scans the Trends page shows. |
+
+The template has four pages. When the folder holds several frameworks, pick
+one in the Framework slicer on the first three.
+
+- **Overview.** Each machine's latest scan: machines, stale machines, and Fail
+  and Error totals, states by machine, and a table of every machine with its
+  state counts, age, level, version and flags (Stale, Not elevated, Platform
+  warning).
+- **Trends.** Fail and Error for each scan in the trend window, a line per
+  machine, and a week-by-week line for all machines that counts each machine by
+  its latest scan at the end of the week. A machine's line breaks where its
+  level or requirement list changed, because the counts don't compare across
+  that, and the Scans table marks each scan's comparability.
+- **Requirements.** The latest scans as a grid of requirements by machine (F
+  Fail, E Error, A Accepted, S Skipped, M Manual, P Pass, - N/A), with the most
+  failing requirements beside it. Family and State slicers narrow it.
+- **Machine detail.** Hover over or right-click a machine on another page and
+  choose Drill through. It lists the machine's requirements with findings, evidence and
+  notes.
+
+Like the scan's own reports, the template shows counts and states, never a
+score. Refresh after new scans arrive. The template keeps no data, but a
+`.pbix` saved from it does, so treat that file like the reports.
+
+The template's source is the Power BI project in [powerbi/](powerbi/), plain text
+that Power BI Desktop opens directly (`EndpointComplianceScan.pbip`). To use the
+records in a report of your own instead, choose Get data, then Folder, pick the
+folder, and filter the file list to names ending in `.records.json`. Combine the
+files: each record becomes a row. Group by `ScanId` and `Framework` for one
+scan, or by `ComputerName` and `CollectedUtc` for trends.
 
 ### Roll-up across machines
 
@@ -363,7 +401,9 @@ deviation may no longer be needed. A malformed entry stops the scan.
 ```
 
 The suite feeds fixture snapshots to the checks, so it needs no network, no
-elevation and no Windows. For every framework it checks the catalog's shape and
+elevation and no Windows. It also checks the Power BI project: every field
+the report uses is in the model, and the model reads the fields the scanner
+writes. For every framework it checks the catalog's shape and
 that a snapshot meeting every expectation passes. Skipped tests fail the run.
 The Tests workflow runs the suite, lint on both editions, and a live scan of the
 runner on both editions, evaluated against every framework.
@@ -419,6 +459,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.15.0 | 2026-10-29 | Power BI template. `EndpointComplianceScan.pbit` on the Release, built from the Power BI project in `powerbi/`, reads every `.records.json` in a folder: an Overview of each machine's latest scan, Trends per machine and week by week (lines break where scans don't compare), a Requirements grid, and a Machine detail drill-through. No account needed. |
 | 0.14.0 | 2026-10-28 | Roll-up trends. The roll-up uses every scan in the folder from the last `-TrendDays` days (default 90): each machine gets a Fail and Error trend line and its change since the previous scan, a week-by-week chart totals all machines, and a table lists the requirements that newly Fail or Error, or no longer do. A new `-trend.csv` has one row per scan. Trend lines break where a level or requirement list changes, and the page says so. |
 | 0.13.0 | 2026-10-28 | The HIPAA catalog is complete: every standard and implementation specification of the Security Rule (164.308 to 164.316), 65 in all, with the administrative, physical and organizational ones Manual. A catalog can be marked `Retired`; the Server 2019 STIGs are, and their scans and HTML reports say that V3R8 is DISA's final release. |
 | 0.12.1 | 2026-10-27 | A relative folder such as `.\Reports`, given to the scanner's `-OutputPath` or the roll-up's `-Path` or `-OutputPath`, is now written under the current PowerShell folder. Before, it went under the folder PowerShell started in (often the home folder), or failed if that folder had no such subfolder. |

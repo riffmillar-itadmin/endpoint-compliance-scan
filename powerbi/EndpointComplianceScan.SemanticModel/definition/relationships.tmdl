@@ -1,0 +1,12 @@
+relationship 961e0d35-c5e4-5dff-98d8-3b6e922abbc5
+	fromColumn: Records.ScanKey
+	toColumn: Scans.ScanKey
+
+relationship e26ed27d-342c-560f-8065-ea4cca7d6fb2
+	fromColumn: Scans.Framework
+	toColumn: Frameworks.Framework
+
+relationship 26d92555-4fd2-50ff-ab80-8adcc3ddf27a
+	fromColumn: FleetWeek.Framework
+	toColumn: Frameworks.Framework
+

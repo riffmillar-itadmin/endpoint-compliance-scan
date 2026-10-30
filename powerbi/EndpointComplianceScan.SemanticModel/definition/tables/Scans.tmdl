@@ -1,0 +1,358 @@
+/// One row per scan and framework, with a count per state. Built from Records.
+table Scans
+	lineageTag: 4bf0ab3e-2105-5a25-ad44-2d7eed63bf2d
+
+	measure Machines = DISTINCTCOUNT(Scans[ComputerName])
+		formatString: 0
+		lineageTag: f502013d-c1e3-5a32-b8d9-c787551c4f1f
+
+	measure 'Stale machines' = CALCULATE(DISTINCTCOUNT(Scans[ComputerName]), Scans[IsStale] = TRUE()) + 0
+		formatString: 0
+		lineageTag: 0c9c4da7-a85b-5f33-ad08-c60edeea7a26
+
+	measure 'Fail count' = SUM(Scans[Fail])
+		formatString: 0
+		lineageTag: 7695f434-de4e-58aa-a8bf-d05d0d7b6b3a
+
+	measure 'Error count' = SUM(Scans[Error])
+		formatString: 0
+		lineageTag: 63c20fec-ef65-501b-bca1-80417b626985
+
+	measure 'Accepted count' = SUM(Scans[Accepted])
+		formatString: 0
+		lineageTag: a3d5af45-2c1f-5fcc-beca-5d8299a78cd1
+
+	measure 'Skipped count' = SUM(Scans[Skipped])
+		formatString: 0
+		lineageTag: 11831c21-8e57-5e75-ab1d-8caae1aca886
+
+	measure 'Manual count' = SUM(Scans[Manual])
+		formatString: 0
+		lineageTag: 348570fb-e935-53cd-a57a-595bba4e69f1
+
+	measure 'Pass count' = SUM(Scans[Pass])
+		formatString: 0
+		lineageTag: 93d6e61b-ff04-505d-8327-bdd7bf71edf8
+
+	measure 'N/A count' = SUM(Scans[N/A])
+		formatString: 0
+		lineageTag: dc5c7eba-0c91-5909-ac2d-4d49887b571f
+
+	column ScanKey
+		dataType: string
+		isHidden
+		lineageTag: 815558fb-8bdb-5f28-a0b8-7c87932e520e
+		summarizeBy: none
+		sourceColumn: ScanKey
+
+		annotation SummarizationSetBy = User
+
+	column ScanId
+		dataType: string
+		isHidden
+		lineageTag: c812e8e1-bd09-5e7e-bacc-cd9dd7dd5370
+		summarizeBy: none
+		sourceColumn: ScanId
+
+		annotation SummarizationSetBy = User
+
+	/// Drill through from here to Machine detail.
+	column ComputerName
+		dataType: string
+		lineageTag: 7bb8c95a-512a-515c-9cf3-138eff3df22a
+		summarizeBy: none
+		sourceColumn: ComputerName
+
+		annotation SummarizationSetBy = User
+
+	column CollectedUtc
+		dataType: dateTime
+		formatString: yyyy-mm-dd hh:nn
+		lineageTag: 2760f7cc-f24a-5a77-bea3-7e5167b9268d
+		summarizeBy: none
+		sourceColumn: CollectedUtc
+
+		annotation SummarizationSetBy = User
+
+	column OSCaption
+		dataType: string
+		lineageTag: 7c699ea9-9758-5c6d-8f18-1962673907f5
+		summarizeBy: none
+		sourceColumn: OSCaption
+
+		annotation SummarizationSetBy = User
+
+	column OSVersion
+		dataType: string
+		lineageTag: f298495b-609f-5eb3-91d5-985f4095943c
+		summarizeBy: none
+		sourceColumn: OSVersion
+
+		annotation SummarizationSetBy = User
+
+	column Framework
+		dataType: string
+		isHidden
+		lineageTag: ba6f01cb-814c-5489-8c86-310902101a9e
+		summarizeBy: none
+		sourceColumn: Framework
+
+		annotation SummarizationSetBy = User
+
+	column FrameworkName
+		dataType: string
+		lineageTag: 9b36314c-11e5-5613-b1dd-a74703a2b37b
+		summarizeBy: none
+		sourceColumn: FrameworkName
+
+		annotation SummarizationSetBy = User
+
+	column Level
+		dataType: string
+		lineageTag: 37df104a-1587-598d-8cd7-dbb009876d2a
+		summarizeBy: none
+		sourceColumn: Level
+
+		annotation SummarizationSetBy = User
+
+	column ToolVersion
+		dataType: string
+		lineageTag: 64939889-3f97-5cde-a3d4-7e5882d9efb9
+		summarizeBy: none
+		sourceColumn: ToolVersion
+
+		annotation SummarizationSetBy = User
+
+	column IsElevated
+		dataType: boolean
+		lineageTag: 7189d3d1-1c27-57b6-9edf-80a69454dcd9
+		summarizeBy: none
+		sourceColumn: IsElevated
+
+		annotation SummarizationSetBy = User
+
+	column PlatformWarning
+		dataType: string
+		lineageTag: b88ff3dd-32b0-5e7c-9bbc-aac8ab02ba91
+		summarizeBy: none
+		sourceColumn: PlatformWarning
+
+		annotation SummarizationSetBy = User
+
+	column CatalogComplete
+		dataType: boolean
+		lineageTag: 95829ae6-453a-5de0-aee5-816f6510f663
+		summarizeBy: none
+		sourceColumn: CatalogComplete
+
+		annotation SummarizationSetBy = User
+
+	column Requirements
+		dataType: int64
+		lineageTag: a39d85c1-4a80-52ab-b104-b39a59d09c51
+		summarizeBy: none
+		sourceColumn: Requirements
+
+		annotation SummarizationSetBy = User
+
+	column Fail
+		dataType: int64
+		lineageTag: df61683c-76ee-569e-9337-3276c800ef17
+		summarizeBy: none
+		sourceColumn: Fail
+
+		annotation SummarizationSetBy = User
+
+	column Error
+		dataType: int64
+		lineageTag: 2425d349-96f4-5e66-b31e-b1ff0bcc97da
+		summarizeBy: none
+		sourceColumn: Error
+
+		annotation SummarizationSetBy = User
+
+	column Accepted
+		dataType: int64
+		lineageTag: 906dd080-1682-548a-b946-cf73f8bc971f
+		summarizeBy: none
+		sourceColumn: Accepted
+
+		annotation SummarizationSetBy = User
+
+	column Skipped
+		dataType: int64
+		lineageTag: e95116eb-684e-5789-a721-1e1eadd8d7c8
+		summarizeBy: none
+		sourceColumn: Skipped
+
+		annotation SummarizationSetBy = User
+
+	column Manual
+		dataType: int64
+		lineageTag: 34ad78c1-8d18-5ea4-b785-7ff8b3f195a1
+		summarizeBy: none
+		sourceColumn: Manual
+
+		annotation SummarizationSetBy = User
+
+	column Pass
+		dataType: int64
+		lineageTag: 8d85d81d-1ee0-5960-8de5-12d076df636e
+		summarizeBy: none
+		sourceColumn: Pass
+
+		annotation SummarizationSetBy = User
+
+	column N/A
+		dataType: int64
+		lineageTag: ee39538c-b52d-51bf-b4e0-d4abfa1095b9
+		summarizeBy: none
+		sourceColumn: N/A
+
+		annotation SummarizationSetBy = User
+
+	column RequirementSet
+		dataType: string
+		isHidden
+		lineageTag: 457e0e28-f70f-5b6e-8ef2-dcbb044c12bb
+		summarizeBy: none
+		sourceColumn: RequirementSet
+
+		annotation SummarizationSetBy = User
+
+	column Segment
+		dataType: int64
+		isHidden
+		lineageTag: 3c8c272e-1af6-5212-b693-1bf70fe6e7bd
+		summarizeBy: none
+		sourceColumn: Segment
+
+		annotation SummarizationSetBy = User
+
+	/// Blank for a machine's first scan, then Yes or No: same level and requirements as the scan before.
+	column ComparableWithPrevious
+		dataType: string
+		lineageTag: 8fc173ec-ed38-5ed2-b2f7-3b1e251c5622
+		summarizeBy: none
+		sourceColumn: ComparableWithPrevious
+
+		annotation SummarizationSetBy = User
+
+	/// The machine name, with the start date of each comparable run when it has more than one, so trend lines break.
+	column TrendSeries
+		dataType: string
+		lineageTag: 78443b9f-7f58-557a-8de1-5a100216cac0
+		summarizeBy: none
+		sourceColumn: TrendSeries
+
+		annotation SummarizationSetBy = User
+
+	/// The machine's latest scan for the framework.
+	column IsLatest
+		dataType: boolean
+		lineageTag: 523f7ece-e6ed-5bf7-bb1f-c8d870873928
+		summarizeBy: none
+		sourceColumn: IsLatest
+
+		annotation SummarizationSetBy = User
+
+	column AgeDays
+		dataType: int64
+		lineageTag: 2c8922f5-a599-58a5-b1ea-5f2bcb2a0885
+		summarizeBy: none
+		sourceColumn: AgeDays
+
+		annotation SummarizationSetBy = User
+
+	column IsStale
+		dataType: boolean
+		lineageTag: 36d64524-30e5-514a-a265-61337602e741
+		summarizeBy: none
+		sourceColumn: IsStale
+
+		annotation SummarizationSetBy = User
+
+	column InTrendWindow
+		dataType: boolean
+		isHidden
+		lineageTag: 2ffa21ad-623c-57c8-96a0-22030b315e89
+		summarizeBy: none
+		sourceColumn: InTrendWindow
+
+		annotation SummarizationSetBy = User
+
+	column Flags
+		dataType: string
+		lineageTag: 76746bb3-7db1-59a2-b8dc-48a279858d72
+		summarizeBy: none
+		sourceColumn: Flags
+
+		annotation SummarizationSetBy = User
+
+	partition Scans = m
+		mode: import
+		source =
+				let
+				    Now = DateTimeZone.RemoveZone(DateTimeZone.UtcNow()),
+				    Grouped = Table.Group(Records,
+				        {"ScanKey", "ScanId", "ComputerName", "CollectedUtc", "OSCaption", "OSVersion", "Framework", "FrameworkName", "FrameworkLevel", "ToolVersion", "IsElevated", "PlatformWarning", "CatalogComplete"},
+				        {
+				            {"Requirements", each Table.RowCount(_), Int64.Type},
+				            {"Fail", each List.Count(List.Select([State], (x) => x = "Fail")), Int64.Type},
+				            {"Error", each List.Count(List.Select([State], (x) => x = "Error")), Int64.Type},
+				            {"Accepted", each List.Count(List.Select([State], (x) => x = "Accepted")), Int64.Type},
+				            {"Skipped", each List.Count(List.Select([State], (x) => x = "Skipped")), Int64.Type},
+				            {"Manual", each List.Count(List.Select([State], (x) => x = "Manual")), Int64.Type},
+				            {"Pass", each List.Count(List.Select([State], (x) => x = "Pass")), Int64.Type},
+				            {"NotApplicable", each List.Count(List.Select([State], (x) => x = "NotApplicable")), Int64.Type},
+				            {"RequirementSet", each Text.Combine(List.Sort(List.Transform([Requirement], Text.From)), ";"), type text}
+				        }),
+				    // Within each machine and framework, oldest first: is this scan comparable
+				    // with the one before it (same level, same requirements), and which run of
+				    // comparable scans does it belong to. Counts don't compare across a break.
+				    Annotate = (t as table) as list =>
+				        let
+				            Rows = Table.ToRecords(Table.Sort(t, {{"CollectedUtc", Order.Ascending}})),
+				            Last = List.Count(Rows) - 1,
+				            Walk = List.Accumulate(List.Positions(Rows), [Out = {}, Segment = 0, Start = null],
+				                (s, i) =>
+				                    let
+				                        r = Rows{i},
+				                        p = if i = 0 then null else Rows{i - 1},
+				                        same = p <> null and r[FrameworkLevel] = p[FrameworkLevel] and r[RequirementSet] = p[RequirementSet],
+				                        seg = if same then s[Segment] else s[Segment] + 1,
+				                        start = if same then s[Start] else r[CollectedUtc]
+				                    in
+				                        [Out = s[Out] & {r & [
+				                            ComparableWithPrevious = if p = null then "" else if same then "Yes" else "No",
+				                            Segment = seg, SegmentStart = start, IsLatest = (i = Last)]},
+				                         Segment = seg, Start = start])
+				        in
+				            List.Transform(Walk[Out], each _ & [Segments = Walk[Segment]]),
+				    ByMachine = Table.Group(Grouped, {"ComputerName", "Framework"}, {{"Rows", Annotate}}),
+				    Annotated = Table.FromRecords(List.Combine(ByMachine[Rows])),
+				    Series = Table.AddColumn(Annotated, "TrendSeries", each
+				        if [Segments] = 1 then [ComputerName]
+				        else [ComputerName] & " from " & Date.ToText(Date.From([SegmentStart]), "yyyy-MM-dd"), type text),
+				    Age = Table.AddColumn(Series, "AgeDays", each Duration.Days(Now - [CollectedUtc]), Int64.Type),
+				    Stale = Table.AddColumn(Age, "IsStale", each [AgeDays] > StaleDays, type logical),
+				    Window = Table.AddColumn(Stale, "InTrendWindow", each [IsLatest] or [CollectedUtc] >= Now - #duration(TrendDays, 0, 0, 0), type logical),
+				    Flags = Table.AddColumn(Window, "Flags", each Text.Combine(List.RemoveNulls({
+				        if [IsStale] then "Stale" else null,
+				        if [IsElevated] = false then "Not elevated" else null,
+				        if [PlatformWarning] <> null and [PlatformWarning] <> "" then "Platform warning" else null}), ", "), type text),
+				    Renamed = Table.RenameColumns(Flags, {{"FrameworkLevel", "Level"}, {"NotApplicable", "N/A"}}),
+				    Kept = Table.RemoveColumns(Renamed, {"Segments", "SegmentStart"}),
+				    Typed = Table.TransformColumnTypes(Kept, {
+				        {"ScanKey", type text}, {"ScanId", type text}, {"ComputerName", type text}, {"CollectedUtc", type datetime},
+				        {"OSCaption", type text}, {"OSVersion", type text}, {"Framework", type text}, {"FrameworkName", type text},
+				        {"Level", type text}, {"ToolVersion", type text}, {"IsElevated", type logical}, {"PlatformWarning", type text},
+				        {"CatalogComplete", type logical}, {"Requirements", Int64.Type}, {"Fail", Int64.Type}, {"Error", Int64.Type},
+				        {"Accepted", Int64.Type}, {"Skipped", Int64.Type}, {"Manual", Int64.Type}, {"Pass", Int64.Type}, {"N/A", Int64.Type},
+				        {"RequirementSet", type text}, {"ComparableWithPrevious", type text}, {"Segment", Int64.Type},
+				        {"IsLatest", type logical}})
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table
+

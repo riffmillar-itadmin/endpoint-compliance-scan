@@ -1,0 +1,54 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.14.0/schema.json",
+  "name": "RequirementsFamily",
+  "position": {
+    "x": 790,
+    "y": 8,
+    "z": 3000,
+    "height": 64,
+    "width": 230,
+    "tabOrder": 3000
+  },
+  "visual": {
+    "visualType": "slicer",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Records"
+                    }
+                  },
+                  "Property": "Family"
+                }
+              },
+              "queryRef": "Records.Family",
+              "nativeQueryRef": "Family",
+              "active": true,
+              "displayName": "Family"
+            }
+          ]
+        }
+      }
+    },
+    "objects": {
+      "data": [
+        {
+          "properties": {
+            "mode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Dropdown'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

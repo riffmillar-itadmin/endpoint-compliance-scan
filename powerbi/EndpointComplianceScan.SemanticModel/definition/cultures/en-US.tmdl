@@ -1,0 +1,473 @@
+cultureInfo en-US
+
+	linguisticMetadata =
+			{
+			  "Version": "2.0.0",
+			  "Language": "en-US",
+			  "Entities": {
+			    "scans.error_count": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "Error count"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Error": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.fail_count": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "Fail count"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Fail": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.level": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "Level"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Level": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.machines": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "Machines"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Machines": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.frameworkname": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "FrameworkName"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Framework": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.collectedutc": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "CollectedUtc"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Collected (UTC)": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.agedays": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "AgeDays"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Age (days)": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.toolversion": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "ToolVersion"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Version": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.stale_machines": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "Stale machines"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Stale machines": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.trendseries": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "TrendSeries"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Machine": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.computername": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "ComputerName"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Machine": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.comparablewithprevious": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "ComparableWithPrevious"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Comparable": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.manual_count": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "Manual count"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Manual": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "scans.pass_count": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Scans",
+			          "ConceptualProperty": "Pass count"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Pass": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "frameworks.frameworkname": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Frameworks",
+			          "ConceptualProperty": "FrameworkName"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Framework": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "fleetweek.fleet_fail": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "FleetWeek",
+			          "ConceptualProperty": "Fleet fail"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Fail": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "fleetweek.fleet_error": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "FleetWeek",
+			          "ConceptualProperty": "Fleet error"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Error": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "records.requirementlabel": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Records",
+			          "ConceptualProperty": "RequirementLabel"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Requirement": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "records.machines_failing": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Records",
+			          "ConceptualProperty": "Machines failing"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Failing": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "records.family": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Records",
+			          "ConceptualProperty": "Family"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "Family": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "records.state_code": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Records",
+			          "ConceptualProperty": "State code"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "State": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    },
+			    "records.state": {
+			      "Definition": {
+			        "Binding": {
+			          "ConceptualEntity": "Records",
+			          "ConceptualProperty": "State"
+			        }
+			      },
+			      "State": "Generated",
+			      "Terms": [
+			        {
+			          "State": {
+			            "State": "Suggested",
+			            "Source": {
+			              "Type": "External",
+			              "Agent": "PowerBI.VisualColumnRename"
+			            },
+			            "Weight": 0.9
+			          }
+			        }
+			      ]
+			    }
+			  }
+			}
+		contentType: json
+
