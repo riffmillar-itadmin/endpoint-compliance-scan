@@ -1,0 +1,190 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "TrendsScans",
+  "position": {
+    "x": 644,
+    "y": 396,
+    "width": 620,
+    "height": 308,
+    "z": 7000,
+    "tabOrder": 7000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "ComputerName"
+                }
+              },
+              "queryRef": "Scans.ComputerName",
+              "nativeQueryRef": "ComputerName"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "CollectedUtc"
+                }
+              },
+              "queryRef": "Scans.CollectedUtc",
+              "nativeQueryRef": "Collected (UTC)",
+              "displayName": "Collected (UTC)"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Level"
+                }
+              },
+              "queryRef": "Scans.Level",
+              "nativeQueryRef": "Level"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Fail"
+                }
+              },
+              "queryRef": "Scans.Fail",
+              "nativeQueryRef": "Fail"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Error"
+                }
+              },
+              "queryRef": "Scans.Error",
+              "nativeQueryRef": "Error"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "ComparableWithPrevious"
+                }
+              },
+              "queryRef": "Scans.ComparableWithPrevious",
+              "nativeQueryRef": "Comparable",
+              "displayName": "Comparable"
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Column": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "Scans"
+                  }
+                },
+                "Property": "CollectedUtc"
+              }
+            },
+            "direction": "Descending"
+          }
+        ]
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "objects": {
+      "total": [
+        {
+          "properties": {
+            "totals": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "values": [
+        {
+          "properties": {
+            "fontSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "11D"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "columnHeaders": [
+        {
+          "properties": {
+            "fontSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "11D"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Scans'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

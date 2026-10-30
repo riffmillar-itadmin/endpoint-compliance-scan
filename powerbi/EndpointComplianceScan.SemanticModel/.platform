@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "SemanticModel",
+    "displayName": "EndpointComplianceScan"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "e45f7a09-fc05-4345-a84b-dcf048d6179a"
+  }
+}

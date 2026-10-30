@@ -1,0 +1,81 @@
+/// Fleet totals at the end of each week, each machine counted by its latest scan at that time.
+table FleetWeek
+	lineageTag: 162a76d3-d6c2-5dee-b791-01021e4aca72
+
+	measure 'Fleet fail' = SUM(FleetWeek[Fail])
+		formatString: 0
+		lineageTag: b8504a8c-6b58-575a-aff6-54ad8b0e7cc4
+
+	measure 'Fleet error' = SUM(FleetWeek[Error])
+		formatString: 0
+		lineageTag: aa52773e-3033-5926-bbd1-f904733698eb
+
+	column Framework
+		dataType: string
+		isHidden
+		lineageTag: 9c776e91-d780-5768-b2af-e47671ad9892
+		summarizeBy: none
+		sourceColumn: Framework
+
+		annotation SummarizationSetBy = User
+
+	column WeekEnding
+		dataType: dateTime
+		formatString: yyyy-mm-dd
+		lineageTag: 2de1288a-9257-5d39-8f65-269630ad3b48
+		summarizeBy: none
+		sourceColumn: WeekEnding
+
+		annotation SummarizationSetBy = User
+
+	column 'Machines counted'
+		dataType: int64
+		lineageTag: 2d7c276a-ff3e-57e2-94ed-c21b2f69dddc
+		summarizeBy: none
+		sourceColumn: Machines counted
+
+		annotation SummarizationSetBy = User
+
+	column Fail
+		dataType: int64
+		lineageTag: b5ba4cc9-cca4-5056-a9ae-63c9b605fb9d
+		summarizeBy: none
+		sourceColumn: Fail
+
+		annotation SummarizationSetBy = User
+
+	column Error
+		dataType: int64
+		lineageTag: f57b1a8a-9b67-5cde-a6c0-200fe6205590
+		summarizeBy: none
+		sourceColumn: Error
+
+		annotation SummarizationSetBy = User
+
+	partition FleetWeek = m
+		mode: import
+		source =
+				let
+				    Now = DateTimeZone.RemoveZone(DateTimeZone.UtcNow()),
+				    // The same scans the Trends page shows: the trend window, plus each machine's latest.
+				    Source = Table.SelectRows(Table.SelectColumns(Scans, {"ComputerName", "Framework", "CollectedUtc", "Fail", "Error", "InTrendWindow"}), each [InTrendWindow]),
+				    Ends = List.Transform({0..Number.RoundUp(TrendDays / 7)}, each Now - #duration(7 * _, 0, 0, 0)),
+				    // Each machine counts by its latest scan at or before the week's end; weeks with no scan are skipped.
+				    Week = (e as datetime) as nullable table =>
+				        let
+				            Upto = Table.SelectRows(Source, each [CollectedUtc] <= e),
+				            Latest = Table.Group(Upto, {"ComputerName", "Framework"}, {{"Last", each Table.Max(_, "CollectedUtc"), type record}}),
+				            Rows = Table.ExpandRecordColumn(Table.SelectColumns(Latest, {"Last"}), "Last", {"Framework", "Fail", "Error"}),
+				            Totals = Table.Group(Rows, {"Framework"}, {
+				                {"Machines counted", each Table.RowCount(_), Int64.Type},
+				                {"Fail", each List.Sum([Fail]), Int64.Type},
+				                {"Error", each List.Sum([Error]), Int64.Type}})
+				        in
+				            if Table.IsEmpty(Upto) then null else Table.AddColumn(Totals, "WeekEnding", each e, type datetime),
+				    Weeks = Table.Combine(List.RemoveNulls(List.Transform(Ends, Week))),
+				    Typed = Table.TransformColumnTypes(Weeks, {{"Framework", type text}, {"WeekEnding", type datetime}, {"Machines counted", Int64.Type}, {"Fail", Int64.Type}, {"Error", Int64.Type}})
+				in
+				    Typed
+
+	annotation PBI_ResultType = Table
+

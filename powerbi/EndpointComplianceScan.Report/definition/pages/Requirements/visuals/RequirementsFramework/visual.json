@@ -1,0 +1,54 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.14.0/schema.json",
+  "name": "RequirementsFramework",
+  "position": {
+    "x": 552,
+    "y": 8,
+    "z": 2000,
+    "height": 64,
+    "width": 230,
+    "tabOrder": 2000
+  },
+  "visual": {
+    "visualType": "slicer",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Frameworks"
+                    }
+                  },
+                  "Property": "FrameworkName"
+                }
+              },
+              "queryRef": "Frameworks.FrameworkName",
+              "nativeQueryRef": "Framework",
+              "active": true,
+              "displayName": "Framework"
+            }
+          ]
+        }
+      }
+    },
+    "objects": {
+      "data": [
+        {
+          "properties": {
+            "mode": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Dropdown'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,304 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "OverviewMachinesTable",
+  "position": {
+    "x": 452,
+    "y": 192,
+    "width": 812,
+    "height": 512,
+    "z": 9000,
+    "tabOrder": 9000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "ComputerName"
+                }
+              },
+              "queryRef": "Scans.ComputerName",
+              "nativeQueryRef": "ComputerName"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "FrameworkName"
+                }
+              },
+              "queryRef": "Scans.FrameworkName",
+              "nativeQueryRef": "Framework",
+              "displayName": "Framework"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "CollectedUtc"
+                }
+              },
+              "queryRef": "Scans.CollectedUtc",
+              "nativeQueryRef": "Collected (UTC)",
+              "displayName": "Collected (UTC)"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "AgeDays"
+                }
+              },
+              "queryRef": "Scans.AgeDays",
+              "nativeQueryRef": "Age (days)",
+              "displayName": "Age (days)"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Level"
+                }
+              },
+              "queryRef": "Scans.Level",
+              "nativeQueryRef": "Level"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "ToolVersion"
+                }
+              },
+              "queryRef": "Scans.ToolVersion",
+              "nativeQueryRef": "Version",
+              "displayName": "Version"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Fail"
+                }
+              },
+              "queryRef": "Scans.Fail",
+              "nativeQueryRef": "Fail"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Error"
+                }
+              },
+              "queryRef": "Scans.Error",
+              "nativeQueryRef": "Error"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Accepted"
+                }
+              },
+              "queryRef": "Scans.Accepted",
+              "nativeQueryRef": "Accepted"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Skipped"
+                }
+              },
+              "queryRef": "Scans.Skipped",
+              "nativeQueryRef": "Skipped"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Manual"
+                }
+              },
+              "queryRef": "Scans.Manual",
+              "nativeQueryRef": "Manual"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Pass"
+                }
+              },
+              "queryRef": "Scans.Pass",
+              "nativeQueryRef": "Pass"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "N/A"
+                }
+              },
+              "queryRef": "Scans.N/A",
+              "nativeQueryRef": "N/A"
+            },
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Flags"
+                }
+              },
+              "queryRef": "Scans.Flags",
+              "nativeQueryRef": "Flags"
+            }
+          ]
+        }
+      },
+      "sortDefinition": {
+        "sort": [
+          {
+            "field": {
+              "Column": {
+                "Expression": {
+                  "SourceRef": {
+                    "Entity": "Scans"
+                  }
+                },
+                "Property": "Fail"
+              }
+            },
+            "direction": "Descending"
+          }
+        ]
+      }
+    },
+    "drillFilterOtherVisuals": true,
+    "objects": {
+      "total": [
+        {
+          "properties": {
+            "totals": {
+              "expr": {
+                "Literal": {
+                  "Value": "false"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "values": [
+        {
+          "properties": {
+            "fontSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "11D"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "columnHeaders": [
+        {
+          "properties": {
+            "fontSize": {
+              "expr": {
+                "Literal": {
+                  "Value": "11D"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "visualContainerObjects": {
+      "title": [
+        {
+          "properties": {
+            "show": {
+              "expr": {
+                "Literal": {
+                  "Value": "true"
+                }
+              }
+            },
+            "text": {
+              "expr": {
+                "Literal": {
+                  "Value": "'Machines'"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

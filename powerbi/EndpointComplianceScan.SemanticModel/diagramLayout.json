@@ -1,0 +1,74 @@
+{
+  "version": "1.1.0",
+  "diagrams": [
+    {
+      "ordinal": 0,
+      "scrollPosition": {
+        "x": 0,
+        "y": 0
+      },
+      "nodes": [
+        {
+          "location": {
+            "x": 50,
+            "y": 188.11884566672279
+          },
+          "nodeIndex": "FleetWeek",
+          "nodeLineageTag": "162a76d3-d6c2-5dee-b791-01021e4aca72",
+          "size": {
+            "height": 248,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 334.20225510460875,
+            "y": 171.88668757849166
+          },
+          "nodeIndex": "Frameworks",
+          "nodeLineageTag": "227da15b-ed91-58a8-8bc9-cbf26c8f167a",
+          "size": {
+            "height": 128,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 902.62216291713662,
+            "y": -50
+          },
+          "nodeIndex": "Records",
+          "nodeLineageTag": "fe407b41-d776-58cd-bbe4-f9b8a71a91d8",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 618.41040181545566,
+            "y": 8.3786977690737672
+          },
+          "nodeIndex": "Scans",
+          "nodeLineageTag": "4bf0ab3e-2105-5a25-ad44-2d7eed63bf2d",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        }
+      ],
+      "name": "All tables",
+      "zoomValue": 100,
+      "pinKeyFieldsToTop": false,
+      "showExtraHeaderInfo": false,
+      "hideKeyFieldsWhenCollapsed": false,
+      "tablesLocked": false
+    }
+  ],
+  "selectedDiagram": "All tables",
+  "defaultDiagram": "All tables"
+}

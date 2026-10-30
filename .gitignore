@@ -17,6 +17,14 @@ ComplianceScan.local*.psd1
 #  Personal copies of instructions, such as CLAUDE.local.md.
 *.local*.md
 
+#  Power BI Desktop writes the data it loaded into the project's .pbi cache and
+#  local paths into its settings. A .pbix holds data too, and a .pbit can hold
+#  your report folder: the template goes on the Release, not in the repo.
+**/.pbi/localSettings.json
+**/.pbi/cache.abf
+*.pbix
+*.pbit
+
 # ---- editor and OS scratch ----
 *.bak
 *.tmp

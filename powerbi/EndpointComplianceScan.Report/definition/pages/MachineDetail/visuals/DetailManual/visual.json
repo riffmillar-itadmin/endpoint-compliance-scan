@@ -1,0 +1,38 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.4.0/schema.json",
+  "name": "DetailManual",
+  "position": {
+    "x": 652,
+    "y": 84,
+    "width": 302,
+    "height": 96,
+    "z": 4000,
+    "tabOrder": 4000
+  },
+  "visual": {
+    "visualType": "card",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Scans"
+                    }
+                  },
+                  "Property": "Manual count"
+                }
+              },
+              "queryRef": "Scans.Manual count",
+              "nativeQueryRef": "Manual",
+              "displayName": "Manual"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
