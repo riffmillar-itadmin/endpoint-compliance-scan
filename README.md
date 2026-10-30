@@ -169,13 +169,17 @@ not the roll-up, and no account. [Power BI Desktop](https://powerbi.microsoft.co
 is free and works without signing in.
 
 Download `EndpointComplianceScan.pbit` from the [latest release](../../releases/latest)
-and open it. Power BI asks for three parameters:
+and open it. Power BI asks for three parameters. The boxes start empty, so
+fill in all three:
 
-| Parameter | Default | What it does |
+| Parameter | Suggested value | What it does |
 | --- | --- | --- |
-| `ReportFolder` | `\\fileserver\scans` | The folder that holds the scan reports. |
+| `ReportFolder` | your share, such as `\\fileserver\scans` | The folder that holds the scan reports. |
 | `StaleDays` | 30 | A latest scan older than this is flagged Stale. |
 | `TrendDays` | 90 | Days of scans the Trends page shows. |
+
+The template ships without parameter values, so it can't fill these in. To
+change them later, choose Transform data, then Edit parameters.
 
 The template has four pages. When the folder holds several frameworks, pick
 one in the Framework slicer on the first three.
@@ -459,6 +463,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.15.1 | 2026-10-30 | README: the Power BI template opens with its three parameters empty, so the table gives suggested values to type in, and says where to change them later. |
 | 0.15.0 | 2026-10-29 | Power BI template. `EndpointComplianceScan.pbit` on the Release, built from the Power BI project in `powerbi/`, reads every `.records.json` in a folder: an Overview of each machine's latest scan, Trends per machine and week by week (lines break where scans don't compare), a Requirements grid, and a Machine detail drill-through. No account needed. |
 | 0.14.0 | 2026-10-28 | Roll-up trends. The roll-up uses every scan in the folder from the last `-TrendDays` days (default 90): each machine gets a Fail and Error trend line and its change since the previous scan, a week-by-week chart totals all machines, and a table lists the requirements that newly Fail or Error, or no longer do. A new `-trend.csv` has one row per scan. Trend lines break where a level or requirement list changes, and the page says so. |
 | 0.13.0 | 2026-10-28 | The HIPAA catalog is complete: every standard and implementation specification of the Security Rule (164.308 to 164.316), 65 in all, with the administrative, physical and organizational ones Manual. A catalog can be marked `Retired`; the Server 2019 STIGs are, and their scans and HTML reports say that V3R8 is DISA's final release. |

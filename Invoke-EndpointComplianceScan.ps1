@@ -186,6 +186,8 @@
                        machines, and a trend CSV with one row per scan.
     0.15.0 2026-10-29  Power BI template (powerbi\, .pbit on the Release)
                        reading every .records.json in a folder.
+    0.15.1 2026-10-30  README: the template's parameters open empty; the
+                       table gives suggested values.
 #>
 
 [CmdletBinding()]
@@ -204,7 +206,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.15.0'
+$ComplianceScanVersion = '0.15.1'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }
