@@ -2,8 +2,9 @@
 # PowerShell 7, then a real scan of the runner under both editions.
 #
 # The suite needs no network, no secrets and no elevation: every check is fed a
-# fixture snapshot. The smoke job is the only one that touches a real machine,
-# and it only reads.
+# fixture snapshot. The smoke job is the only one that touches a real machine.
+# Its scans only read; its last step registers a scheduled task on the
+# throwaway runner and removes it again.
 
 name: Tests
 
@@ -61,10 +62,12 @@ jobs:
     # errored, and fails the job. The runner is pinned to Windows Server 2025, a
     # standalone server rather than a domain controller, so it scans with the
     # member server STIG. The other STIG catalogs warn that they were written for
-    # another Windows, which is expected here. Last, the roll-up reads those
-    # reports and must write a page for every framework.
+    # another Windows, which is expected here. Then the roll-up reads those
+    # reports and must write a page for every framework. Last, the scheduled
+    # scan is registered as a real task (the job runs elevated); under
+    # powershell it also runs twice, to a share and with the share away.
     runs-on: windows-2025
-    timeout-minutes: 15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -91,3 +94,7 @@ jobs:
       - name: Roll up the reports
         shell: cmd
         run: ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\New-ComplianceRollup.ps1 -Path "%RUNNER_TEMP%\scan"
+
+      - name: Schedule a scan as a task, run it, and remove it
+        shell: cmd
+        run: ${{ matrix.shell }} -NoProfile -ExecutionPolicy Bypass -File .\tests\ci\Test-ScheduledScanTask.ps1 -WorkPath "%RUNNER_TEMP%\scheduled" ${{ matrix.shell == 'powershell' && '-Run' || '' }}

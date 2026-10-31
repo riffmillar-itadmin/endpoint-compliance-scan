@@ -1,8 +1,9 @@
 # endpoint-compliance-scan
 
 A read-only PowerShell scanner that checks a Windows workstation or server
-against one compliance framework, chosen at run time, and reports a result with
-evidence for each requirement.
+against one or more compliance frameworks, chosen at run time, and reports a
+result with evidence for each requirement. It can run once at the console or on a
+schedule across many machines, writing to a shared folder.
 
 | Framework | `-Framework` | Levels | Requirements | With endpoint evidence |
 | --- | --- | --- | --- | --- |
@@ -95,7 +96,12 @@ accounts and groups, and installed updates, and on a domain controller Active Di
 from that domain controller itself (localhost). It makes no other network calls.
 Its only side effects are
 temporary files (the `secedit` and `auditpol` exports), deleted as soon as they
-are read, and the report files.
+are read, and the report files (plus the waiting reports and run log, when
+`-FallbackPath` and `-LogPath` are given).
+
+Scheduling it does change the machine: `Register-ComplianceScanTask.ps1` copies
+the scanner to Program Files and registers a scheduled task. See
+[Scheduled scans](#scheduled-scans).
 
 ## Usage
 
@@ -117,12 +123,20 @@ are read, and the report files.
 
 # Evaluate a saved snapshot against another framework, on any OS
 pwsh -File ./Invoke-EndpointComplianceScan.ps1 -Framework NIST-800-53r5 -Level Low -FromSnapshot ./pc01.snapshot.json
+
+# One collection, evaluated against CMMC and the Windows 11 STIG
+.\Invoke-EndpointComplianceScan.ps1 -Framework CMMC, DISA-STIG-Win11
 ```
 
 `-Framework` takes a framework's Id or its catalog file name, ignoring case
 (`disa-stig-win11` works). A level includes the levels before it: `-Level
 Moderate` covers Low and Moderate, and `-Level 'CAT II'` covers CAT I and CAT II.
 Without `-Level` the scan uses the framework's highest level.
+
+Several frameworks, as a list or one comma-separated string, are collected once
+and evaluated against each in turn, and each gets its own reports. `-Level` then
+applies to every one of them, so give it only when they share the level.
+`-StigPath` applies to the STIG among them.
 
 One snapshot holds the facts for every framework, so a machine scanned once can
 be evaluated against any of them with `-FromSnapshot`.
@@ -141,6 +155,117 @@ gets no progress bar.
 | 0 | No Fail and no Error (accepted deviations don't count as Fail) |
 | 1 | At least one Fail |
 | 2 | At least one Error, or the scan couldn't start (including no `-Framework`) |
+
+With several frameworks, the exit code is the worst of them.
+
+## Scheduled scans
+
+`Register-ComplianceScanTask.ps1` sets up a machine to scan itself on a schedule
+and write its reports to a shared folder, where the [roll-up](#roll-up-across-machines)
+and the [Power BI template](#power-bi) read them. Run it elevated, from a copy of
+the repository, on each machine (or push the same command through Intune, Group
+Policy or your management tool).
+
+```powershell
+# Weekly CMMC scan, Mondays from 02:00 with up to two hours' random delay
+.\Register-ComplianceScanTask.ps1 -Framework CMMC -OutputPath \\fileserver\scans
+
+# Daily scan of a Server 2022 member server against two frameworks, with STIG Viewer checklists
+.\Register-ComplianceScanTask.ps1 -Framework CMMC, DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R11_STIG.zip -OutputPath \\fileserver\scans -Schedule Daily -At 22:00
+
+# Show what would change, without changing anything
+.\Register-ComplianceScanTask.ps1 -Framework CMMC -OutputPath \\fileserver\scans -WhatIf
+
+# Scan now, then remove the task and the installed copy
+Start-ScheduledTask -TaskName 'Endpoint compliance scan'
+.\Register-ComplianceScanTask.ps1 -Unregister -RemoveFiles
+```
+
+It checks the frameworks and level first, so a typo fails now rather than at 02:00
+on Monday. Then it:
+
+- copies the scanner, the `frameworks` folder, the example profile, your
+  `ComplianceScan.local.psd1` (or `-ProfilePath`) and the `-StigPath` file to
+  `%ProgramFiles%\EndpointComplianceScan`, so the task never runs code from a
+  user's folder or a share;
+- registers one task, `\Endpoint compliance scan`, that runs the installed copy
+  with Windows PowerShell 5.1 as SYSTEM with highest privileges, so every
+  collector can read what it needs. It starts late if the machine was off at
+  the scheduled time, runs on battery, never runs twice at once, and is stopped
+  after two hours.
+
+Running it again replaces the task and refreshes the installed copy, so it is
+also how to update a machine to a new release.
+
+| Parameter | Default | |
+| --- | --- | --- |
+| `-Framework` | (required) | One or more frameworks, collected once per run. |
+| `-Level` | each framework's highest | As for the scanner. |
+| `-OutputPath` | (required) | The shared folder, as a UNC path. SYSTEM can't see a user's mapped drives. |
+| `-StigPath` | | The DISA STIG zip, for STIG Viewer checklists. |
+| `-ProfilePath` | `ComplianceScan.local.psd1` beside the script, if any | Installed as the scanner's local profile. |
+| `-Schedule` | `Weekly` | `Weekly` or `Daily`. |
+| `-At` | `02:00` | Start time, local, as `HH:mm`. |
+| `-DaysOfWeek` | `Monday` | Days for a weekly task. |
+| `-RandomDelayMinutes` | `120` | Up to this many minutes added at random to each start, so a fleet doesn't reach the share at once. `0` turns it off. |
+| `-KeepDays` | `90` | Days a report may wait in the fallback folder. |
+| `-InstallPath` | `%ProgramFiles%\EndpointComplianceScan` | Where the scanner is installed. |
+| `-DataPath` | `%ProgramData%\EndpointComplianceScan` | Where the fallback folder and run log live. |
+| `-TaskName` | `Endpoint compliance scan` | The task's name. |
+| `-Unregister`, `-RemoveFiles` | | Remove the task, and with `-RemoveFiles` the installed copy. The fallback folder and run log stay, since they may hold reports not yet delivered. |
+
+### When the share is away
+
+A laptop off the network or a file server that's down shouldn't lose a scan.
+The task passes the scanner `-FallbackPath %ProgramData%\EndpointComplianceScan\Pending`.
+When `-OutputPath` can't be written, the scan still runs, its reports go to the
+fallback folder, and it warns. The next run that can write to the share first
+moves the waiting reports there, oldest first, so the roll-up sees every scan in
+order. Reports that wait longer than `-KeepDays` are removed, with a warning.
+
+The same parameters work at the console. Without `-FallbackPath`, a report folder
+that can't be written stops the scan before it collects anything.
+
+### Run log
+
+Each scheduled run adds a row to `%ProgramData%\EndpointComplianceScan\scan-log.csv`
+(the scanner's `-LogPath`), so a machine whose reports stop arriving can be
+checked locally:
+
+| Column | |
+| --- | --- |
+| `TimeUtc` | When the run ended. |
+| `Computer`, `Frameworks` | What was scanned. |
+| `ExitCode` | As above: 0, 1 or 2. |
+| `Destination` | The folder the reports went to: the share, or the fallback folder. |
+| `Delivered`, `Pending`, `Removed` | Waiting report files moved to the share, still waiting, and removed after `-KeepDays`. |
+| `Message` | The error, when the run couldn't finish. |
+
+Rows older than a year are dropped. The task's own history in Task Scheduler
+shows the exit code too, as Last Run Result.
+
+### Share permissions
+
+The task writes as the computer account (`WESTMARK\PC01$`), so the machines need
+a domain and a share they can write to. Reports name computers and local
+accounts, so it helps if each machine can add its own reports and not read
+anyone else's. One way, on the file server, run elevated (replace the domain and
+group names with your own):
+
+```powershell
+New-Item -ItemType Directory -Path D:\Scans
+New-SmbShare -Name scans -Path D:\Scans -ChangeAccess 'WESTMARK\Domain Computers' -ReadAccess 'WESTMARK\Compliance Readers' -FullAccess 'BUILTIN\Administrators'
+
+# Machines may create files in the folder but not list it. Each machine's own
+# files are its to replace or delete (CREATOR OWNER). Readers read everything.
+icacls D:\Scans /inheritance:r /grant:r 'BUILTIN\Administrators:(OI)(CI)F' 'NT AUTHORITY\SYSTEM:(OI)(CI)F' 'WESTMARK\Compliance Readers:(OI)(CI)RX' 'WESTMARK\Domain Computers:(X,RA,REA,RC,WD)' 'CREATOR OWNER:(OI)(IO)M'
+```
+
+Try it with one machine before the fleet: register the task, run
+`Start-ScheduledTask`, and check that its reports arrive and its run log says
+the share. With these permissions a reader can't write to the share, so give
+the roll-up an `-OutputPath` elsewhere.
+
 
 ## Reports
 
@@ -410,7 +535,10 @@ the report uses is in the model, and the model reads the fields the scanner
 writes. For every framework it checks the catalog's shape and
 that a snapshot meeting every expectation passes. Skipped tests fail the run.
 The Tests workflow runs the suite, lint on both editions, and a live scan of the
-runner on both editions, evaluated against every framework.
+runner on both editions, evaluated against every framework. It also registers the
+scheduled task on the runner and checks it, and on Windows PowerShell 5.1 runs the
+task twice: once to a writable folder, and once to one that can't be written,
+whose reports must wait in the fallback folder. Then it removes the task.
 
 Both scripts are pinned to one version of their tool (Pester 6.2.0,
 PSScriptAnalyzer 1.25.0) and install it for the current user if it's missing.
@@ -463,6 +591,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.16.0 | 2026-10-30 | Scheduled scans. `Register-ComplianceScanTask.ps1` installs the scanner to Program Files and registers a weekly (or daily) task that runs it as SYSTEM, with a random delay, writing to a shared folder; `-Unregister` removes it. The scanner takes several frameworks in one run, collecting once. When `-OutputPath` can't be written, `-FallbackPath` keeps the reports and a later run delivers them, oldest first; `-KeepDays` (default 90) removes ones that wait too long. `-LogPath` adds a row per run to a CSV. The README gives share permissions that let machines add reports without reading each other's. |
 | 0.15.1 | 2026-10-30 | README: the Power BI template opens with its three parameters empty, so the table gives suggested values to type in, and says where to change them later. |
 | 0.15.0 | 2026-10-29 | Power BI template. `EndpointComplianceScan.pbit` on the Release, built from the Power BI project in `powerbi/`, reads every `.records.json` in a folder: an Overview of each machine's latest scan, Trends per machine and week by week (lines break where scans don't compare), a Requirements grid, and a Machine detail drill-through. No account needed. |
 | 0.14.0 | 2026-10-28 | Roll-up trends. The roll-up uses every scan in the folder from the last `-TrendDays` days (default 90): each machine gets a Fail and Error trend line and its change since the previous scan, a week-by-week chart totals all machines, and a table lists the requirements that newly Fail or Error, or no longer do. A new `-trend.csv` has one row per scan. Trend lines break where a level or requirement list changes, and the page says so. |

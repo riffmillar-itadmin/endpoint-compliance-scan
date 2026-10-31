@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    Scans the local Windows endpoint for evidence against one compliance framework,
-    chosen at run time: CMMC, NIST SP 800-171 Rev 3, NIST SP 800-53 Rev 5, the DISA
+    Scans the local Windows endpoint for evidence against one or more compliance
+    frameworks, chosen at run time: CMMC, NIST SP 800-171 Rev 3, NIST SP 800-53 Rev 5, the DISA
     STIGs for Windows 11 and Windows Server 2019, 2022 and 2025, CIS Controls v8.1,
     NIST CSF 2.0, PCI DSS 4.0.1 or HIPAA.
 
@@ -13,8 +13,9 @@
 
     It works in two stages so that every pass/fail rule can be tested anywhere:
         1. Collect: gather raw facts about the machine into a snapshot.
-        2. Evaluate: judge the snapshot against one framework's requirements.
-    One snapshot holds the facts for every framework, so a saved snapshot can be
+        2. Evaluate: judge the snapshot against each framework's requirements.
+    Given several frameworks, the machine is collected once and evaluated against
+    each in turn. One snapshot holds the facts for every framework, so a saved snapshot can be
     evaluated against any of them later with -FromSnapshot.
 
     Each framework is a catalog in the frameworks folder (frameworks/README.md
@@ -59,19 +60,40 @@
 
     Exit codes: 0 no Fail and no Error (accepted deviations included); 1 at least
     one Fail; 2 at least one Error, or the scan could not start. Error wins over Fail because a run with errors
-    can't be relied on either way.
+    can't be relied on either way. With several frameworks, the worst of them.
+
+    For unattended runs, Register-ComplianceScanTask.ps1 schedules this script.
+    -FallbackPath keeps the reports when -OutputPath can't be written and
+    delivers them on a later run; -LogPath keeps a row per run.
 
 .PARAMETER Framework
-    The framework to evaluate, by its Id or its catalog file name, for example
-    CMMC, NIST-800-53r5 or disa-stig-ws2022-ms. Required; run without it to list them.
+    The frameworks to evaluate, by Id or catalog file name, for example CMMC,
+    NIST-800-53r5 or disa-stig-ws2022-ms. Give several as a list or one
+    comma-separated string. Required; run without it to list them.
 
 .PARAMETER Level
     The framework level to assess, such as L1 (CMMC), Low (NIST SP 800-53), CAT I
     (STIG) or IG1 (CIS). A level includes the levels before it. Defaults to the
-    framework's highest level. For CMMC, 1 and 2 also work.
+    framework's highest level. For CMMC, 1 and 2 also work. With several
+    frameworks, the level must belong to each.
 
 .PARAMETER OutputPath
     Folder for the report files. Defaults to a Reports folder beside this script.
+
+.PARAMETER FallbackPath
+    Folder for the reports when -OutputPath can't be written, such as a share
+    that's away. A later run that can write to -OutputPath first moves the
+    waiting reports there, oldest first. Without it, a folder that can't be
+    written stops the scan.
+
+.PARAMETER KeepDays
+    Days a report may wait in -FallbackPath before it's removed. Defaults to 90.
+
+.PARAMETER LogPath
+    A CSV file that gets one row per run: the time (UTC), computer, frameworks,
+    exit code, where the reports went, how many waiting files were delivered,
+    are still waiting or were removed, and any error. Rows older than a year are
+    dropped.
 
 .PARAMETER ProfilePath
     Thresholds file to use on top of ComplianceScan.example.psd1 and the
@@ -88,7 +110,8 @@
 
 .PARAMETER StigPath
     The DISA STIG zip from cyber.mil, or the XCCDF file inside it, for the
-    framework being scanned. With it, a STIG scan also writes STIG Viewer
+    STIG being scanned. With several frameworks it applies to the STIG among
+    them. With it, a STIG scan also writes STIG Viewer
     checklists (.cklb for STIG Viewer 3, .ckl for STIG Viewer 2) holding every
     rule's text and the scan's results.
 
@@ -113,6 +136,11 @@
 .EXAMPLE
     pwsh -File ./Invoke-EndpointComplianceScan.ps1 -Framework NIST-800-53r5 -Level Low -FromSnapshot ./pc01.snapshot.json
     Evaluate a saved snapshot against another framework.
+
+.EXAMPLE
+    .\Invoke-EndpointComplianceScan.ps1 -Framework CMMC, DISA-STIG-Win11 -OutputPath \\fileserver\scans -FallbackPath C:\ProgramData\EndpointComplianceScan\Pending
+    One collection, evaluated against CMMC and the Windows 11 STIG. If the share
+    is away, the reports wait locally until a later run.
 
 .NOTES
     Version notes
@@ -188,13 +216,19 @@
                        reading every .records.json in a folder.
     0.15.1 2026-10-30  README: the template's parameters open empty; the
                        table gives suggested values.
+    0.16.0 2026-10-30  Scheduled scans: several frameworks per run,
+                       -FallbackPath, -KeepDays and -LogPath, and
+                       Register-ComplianceScanTask.ps1.
 #>
 
 [CmdletBinding()]
 param(
-    [string]$Framework,
+    [string[]]$Framework,
     [string]$Level,
     [string]$OutputPath,
+    [string]$FallbackPath,
+    [ValidateRange(1, 3650)][int]$KeepDays = 90,
+    [string]$LogPath,
     [string]$ProfilePath,
     [string]$SnapshotPath,
     [string]$FromSnapshot,
@@ -206,7 +240,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.15.1'
+$ComplianceScanVersion = '0.16.0'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }
@@ -2690,12 +2724,12 @@ function Write-Wrapped {
 function Write-ScanBanner {
     # What the scan is about to do, how long it takes and that it changes
     # nothing, set apart so it reads before the progress bar starts.
-    param([string]$Computer, $Catalog, [bool]$Elevated)
+    param([string]$Computer, [object[]]$Catalog, [bool]$Elevated)
     $label = 13
     Write-Host ''
     Write-Host "Endpoint compliance scan $ComplianceScanVersion" -ForegroundColor Cyan
     $rows = [ordered]@{
-        Scanning = "$Computer for $($Catalog.Name)"
+        Scanning = "$Computer for $(@($Catalog | ForEach-Object { $_.Name }) -join ', ')"
         Time     = 'Usually 2 to 5 minutes; longer on a domain controller with a large directory.'
         Changes  = 'None. The scan only reads; the reports are the only files it leaves.'
     }
@@ -3379,6 +3413,118 @@ function Export-ScanReport {
     return $files
 }
 
+function Split-FrameworkList {
+    # Framework names from -Framework, which takes several. An array passed
+    # through powershell -File (as a scheduled task does) arrives as one string,
+    # so commas split it too. Duplicates go, ignoring case; the order stays.
+    param([string[]]$Framework)
+    $seen = @{}
+    @(foreach ($name in @($Framework | ForEach-Object { "$_" -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+        if (-not $seen.ContainsKey($name.ToLowerInvariant())) {
+            $seen[$name.ToLowerInvariant()] = $true
+            $name
+        }
+    })
+}
+
+function Test-FolderWritable {
+    # Whether a file can be written in the folder, creating it if needed. A
+    # share can list fine and still refuse a write, so this writes and removes
+    # a probe file.
+    param([string]$Folder)
+    try {
+        if (-not (Test-Path -LiteralPath $Folder -PathType Container)) { $null = New-Item -ItemType Directory -Path $Folder -ErrorAction Stop }
+        $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Folder)
+        $probe = Join-Path $full ".write-test-$([guid]::NewGuid().ToString('n'))"
+        [IO.File]::WriteAllText($probe, '')
+        Remove-Item -LiteralPath $probe -Force -ErrorAction Stop
+        return $true
+    } catch {
+        Write-Verbose "Can't write to ${Folder}: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Resolve-ReportFolder {
+    # Where this run's reports go: -OutputPath when it can be written, else the
+    # fallback folder, else the run stops. Reason says why the fallback was used.
+    param([string]$OutputPath, [string]$FallbackPath)
+    if (Test-FolderWritable $OutputPath) {
+        return [pscustomobject]@{ Folder = $OutputPath; Destination = 'Output'; Reason = '' }
+    }
+    if (-not $FallbackPath) { throw "Can't write reports to $OutputPath. Check the path and its permissions, or give -FallbackPath." }
+    if (-not (Test-FolderWritable $FallbackPath)) { throw "Can't write reports to $OutputPath or to the fallback folder $FallbackPath." }
+    [pscustomobject]@{
+        Folder      = $FallbackPath
+        Destination = 'Fallback'
+        Reason      = "Can't write to $OutputPath, so the reports went to $FallbackPath. The next run that reaches $OutputPath moves them there."
+    }
+}
+
+function Get-PendingReport {
+    # Scan reports waiting in the fallback folder, oldest first.
+    param([string]$FallbackPath)
+    if (-not $FallbackPath -or -not (Test-Path -LiteralPath $FallbackPath -PathType Container)) { return @() }
+    @(Get-ChildItem -LiteralPath $FallbackPath -File -Filter 'compliance-scan-*' | Sort-Object LastWriteTimeUtc, Name)
+}
+
+function Send-PendingReport {
+    # Moves the reports waiting in the fallback folder to -OutputPath, oldest
+    # first. Stops at the first one that fails, so the rest wait for the next run.
+    param([string]$FallbackPath, [string]$OutputPath)
+    $pending = @(Get-PendingReport $FallbackPath)
+    $moved = 0
+    $problem = ''
+    foreach ($file in $pending) {
+        try {
+            Move-Item -LiteralPath $file.FullName -Destination (Join-Path $OutputPath $file.Name) -Force -ErrorAction Stop
+            $moved++
+        } catch {
+            $problem = "Stopped moving waiting reports at $($file.Name): $($_.Exception.Message)"
+            break
+        }
+    }
+    [pscustomobject]@{ Delivered = $moved; Remaining = $pending.Count - $moved; Problem = $problem }
+}
+
+function Remove-StalePendingReport {
+    # Deletes waiting reports older than KeepDays, so a machine that never
+    # reaches the share doesn't fill its disk. Returns the names removed.
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([System.Array])]
+    param([string]$FallbackPath, [int]$KeepDays, [datetime]$Now)
+    $cutoff = $Now.ToUniversalTime().AddDays(-$KeepDays)
+    @(foreach ($file in @(Get-PendingReport $FallbackPath | Where-Object { $_.LastWriteTimeUtc -lt $cutoff })) {
+        if (-not $PSCmdlet.ShouldProcess($file.FullName, 'Remove waiting report')) { continue }
+        try {
+            Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Stop
+            $file.Name
+        } catch {
+            Write-Verbose "Couldn't remove $($file.Name): $($_.Exception.Message)"
+        }
+    })
+}
+
+function Write-ScanLog {
+    # Appends one row per run to a CSV log and drops rows older than a year.
+    param([string]$LogPath, [System.Collections.IDictionary]$Row, [datetime]$Now)
+    $folder = Split-Path $LogPath -Parent
+    if ($folder -and -not (Test-Path -LiteralPath $folder)) { $null = New-Item -ItemType Directory -Path $folder }
+    $culture = [Globalization.CultureInfo]::InvariantCulture
+    $cutoff = $Now.ToUniversalTime().AddDays(-365)
+    $kept = @()
+    if (Test-Path -LiteralPath $LogPath) {
+        $kept = @(Import-Csv -LiteralPath $LogPath | Where-Object {
+                $when = [datetime]::MinValue
+                [datetime]::TryParse($_.TimeUtc, $culture, [Globalization.DateTimeStyles]'AdjustToUniversal, AssumeUniversal', [ref]$when) -and $when -ge $cutoff
+            })
+    }
+    $entry = [ordered]@{ TimeUtc = $Now.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', $culture) }
+    foreach ($k in $Row.Keys) { $entry[$k] = $Row[$k] }
+    @($kept) + @([pscustomobject]$entry) | Select-Object -Property @($entry.Keys) |
+        Export-Csv -LiteralPath $LogPath -NoTypeInformation -Encoding UTF8
+}
+
 function Get-CatalogNotice {
     # Notes about the catalog itself, printed after the scan and shown on the HTML report.
     param($Catalog, [switch]$HasStig)
@@ -3397,58 +3543,115 @@ function Get-CatalogNotice {
 # Dot-sourced (as the tests do): define the functions above and stop here.
 if ($MyInvocation.InvocationName -eq '.') { return }
 
+# One row for -LogPath, filled in as the run goes.
+$runLog = [ordered]@{
+    Computer    = "$env:COMPUTERNAME"
+    Frameworks  = (@(Split-FrameworkList $Framework) -join ';')
+    ExitCode    = ''
+    Destination = ''
+    Delivered   = 0
+    Pending     = 0
+    Removed     = 0
+    Message     = ''
+}
+
 try {
     $root = $PSScriptRoot
     $catalogs = @(Get-FrameworkCatalog (Join-Path $root 'frameworks'))
-    $catalog = Resolve-Framework $catalogs $Framework
-    $Level = Resolve-FrameworkLevel $catalog $Level
+    $names = @(Split-FrameworkList $Framework)
+    if ($names.Count -eq 0) { $null = Resolve-Framework $catalogs '' }
 
     $override = $ProfilePath
     if (-not $override) {
         $local = Join-Path $root 'ComplianceScan.local.psd1'
         if (Test-Path -LiteralPath $local) { $override = $local }
     }
-    # Read the STIG file first, so a wrong one stops the run before the scan.
-    $benchmark = $null
+    $runs = @(foreach ($name in $names) {
+            $catalog = Resolve-Framework $catalogs $name
+            [pscustomobject]@{ Catalog = $catalog; Level = (Resolve-FrameworkLevel $catalog $Level); Benchmark = $null; Thresholds = $null }
+        })
+    # Read the STIG file first, so a wrong one stops the run before the scan. It
+    # applies to the STIG frameworks in the list; the others ignore it.
     if ($StigPath) {
         $benchmark = Read-StigBenchmark $StigPath
-        Assert-StigBenchmark $catalog $benchmark
+        $stigRuns = @($runs | Where-Object { $_.Catalog.Contains('StigId') })
+        if ($stigRuns.Count -eq 0) { Assert-StigBenchmark $runs[0].Catalog $benchmark }
+        foreach ($r in $stigRuns) {
+            Assert-StigBenchmark $r.Catalog $benchmark
+            $r.Benchmark = $benchmark
+        }
     }
-    $notice = @(Get-CatalogNotice $catalog -HasStig:([bool]$StigPath))
+    foreach ($r in $runs) {
+        $r.Thresholds = Get-ScanThreshold -ExamplePath (Join-Path $root 'ComplianceScan.example.psd1') -Catalog $r.Catalog -OverridePath $override
+        if ($override) { Write-Verbose "Thresholds: example, then $($r.Catalog.Id), then $override." }
+    }
 
-    $thresholds = Get-ScanThreshold -ExamplePath (Join-Path $root 'ComplianceScan.example.psd1') -Catalog $catalog -OverridePath $override
-    if ($override) { Write-Verbose "Thresholds: example, then $($catalog.Id), then $override." }
+    $snapshot = $null
+    if ($FromSnapshot) { $snapshot = Read-Snapshot $FromSnapshot }
 
-    if ($FromSnapshot) {
-        $snapshot = Read-Snapshot $FromSnapshot
-    } else {
+    # Where the reports go, decided before the scan so a share that's away is
+    # reported up front. Reports already waiting in the fallback folder go first.
+    $folder = $OutputPath
+    if (-not $folder) { $folder = Join-Path $root 'Reports' }
+    $target = Resolve-ReportFolder -OutputPath $folder -FallbackPath $FallbackPath
+    $runLog.Destination = $target.Folder
+    if ($target.Destination -eq 'Fallback') { Write-Warning $target.Reason }
+    if ($FallbackPath -and $target.Destination -eq 'Output') {
+        $sent = Send-PendingReport -FallbackPath $FallbackPath -OutputPath $folder
+        $runLog.Delivered = $sent.Delivered
+        if ($sent.Delivered -gt 0) { Write-Host "Moved $($sent.Delivered) waiting report file(s) from $FallbackPath to $folder." -ForegroundColor Cyan }
+        if ($sent.Problem) { Write-Warning $sent.Problem }
+    }
+
+    if (-not $snapshot) {
         if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
             throw 'A live scan needs Windows. Use -FromSnapshot to evaluate a saved snapshot elsewhere.'
         }
-        Write-ScanBanner -Computer $env:COMPUTERNAME -Catalog $catalog -Elevated (Test-Elevated)
+        Write-ScanBanner -Computer $env:COMPUTERNAME -Catalog @($runs | ForEach-Object { $_.Catalog }) -Elevated (Test-Elevated)
         $clock = [Diagnostics.Stopwatch]::StartNew()
-        $snapshot = Get-EndpointSnapshot -Targets (Get-CollectionTarget -Catalogs $catalogs -Thresholds $thresholds)
+        # Every framework's nonessential services, so the one snapshot serves each.
+        $services = @($runs | ForEach-Object { @($_.Thresholds.NonessentialServices) } | Where-Object { $_ } | Select-Object -Unique)
+        $snapshot = Get-EndpointSnapshot -Targets (Get-CollectionTarget -Catalogs $catalogs -Thresholds ([pscustomobject]@{ NonessentialServices = $services }))
         Write-Host ('Evidence collected in {0}m {1:00}s.' -f [math]::Floor($clock.Elapsed.TotalMinutes), $clock.Elapsed.Seconds) -ForegroundColor Cyan
     }
     if ($SnapshotPath) {
         $snapshot | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $SnapshotPath -Encoding UTF8
     }
 
-    $evaluation = Invoke-ComplianceEvaluation -Snapshot $snapshot -Thresholds $thresholds -Catalog $catalog -Level $Level
-    if ($evaluation.PlatformWarning) { Write-Warning $evaluation.PlatformWarning }
+    # One collection, evaluated against each framework in turn.
+    $code = 0
+    foreach ($r in $runs) {
+        $evaluation = Invoke-ComplianceEvaluation -Snapshot $snapshot -Thresholds $r.Thresholds -Catalog $r.Catalog -Level $r.Level
+        if ($evaluation.PlatformWarning) { Write-Warning $evaluation.PlatformWarning }
+        $notice = @(Get-CatalogNotice $r.Catalog -HasStig:([bool]$r.Benchmark))
+        $files = Export-ScanReport -Evaluation $evaluation -Snapshot $snapshot -Thresholds $r.Thresholds -Catalog $r.Catalog -Folder $target.Folder -IncludeSnapshot:$IncludeSnapshot -Benchmark $r.Benchmark -Notice $notice
 
-    $folder = $OutputPath
-    if (-not $folder) { $folder = Join-Path $root 'Reports' }
-    $files = Export-ScanReport -Evaluation $evaluation -Snapshot $snapshot -Thresholds $thresholds -Catalog $catalog -Folder $folder -IncludeSnapshot:$IncludeSnapshot -Benchmark $benchmark -Notice $notice
-
-    Write-ScanSummary -Evaluation $evaluation -Snapshot $snapshot -Catalog $catalog
-    Write-Host ''
-    foreach ($n in $notice) { Write-Wrapped $n -Colour Yellow }
-    Write-ReportList $files
-    if ($PassThru) { $evaluation.Requirements }
-    $code = Get-ScanExitCode $evaluation.Requirements
+        Write-ScanSummary -Evaluation $evaluation -Snapshot $snapshot -Catalog $r.Catalog
+        Write-Host ''
+        foreach ($n in $notice) { Write-Wrapped $n -Colour Yellow }
+        Write-ReportList $files
+        if ($PassThru) { $evaluation.Requirements }
+        $code = [math]::Max($code, (Get-ScanExitCode $evaluation.Requirements))
+    }
+    if ($target.Destination -eq 'Fallback') { Write-Wrapped $target.Reason -Colour Yellow }
 } catch {
     Write-Error -ErrorRecord $_ -ErrorAction Continue
     $code = 2
+    $runLog.Message = "$($_.Exception.Message)"
+}
+
+if ($FallbackPath) {
+    $removed = @(Remove-StalePendingReport -FallbackPath $FallbackPath -KeepDays $KeepDays -Now ([datetime]::UtcNow))
+    if ($removed.Count -gt 0) { Write-Warning "Removed $($removed.Count) waiting report file(s) older than $KeepDays days from ${FallbackPath}: $($removed -join ', ')" }
+    $runLog.Removed = $removed.Count
+    $runLog.Pending = @(Get-PendingReport $FallbackPath).Count
+}
+if ($LogPath) {
+    $runLog.ExitCode = $code
+    try {
+        Write-ScanLog -LogPath $LogPath -Row $runLog -Now ([datetime]::UtcNow)
+    } catch {
+        Write-Warning "Couldn't write the run log ${LogPath}: $($_.Exception.Message)"
+    }
 }
 exit $code
