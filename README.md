@@ -286,6 +286,17 @@ computer, then time, and evaluating the same snapshot again replaces its reports
 The reports name the computer and its local accounts, so treat them as internal
 records.
 
+The HTML report opens with the counts, then a table by family, then the
+requirements. It starts on the ones that need attention, each opened here to
+its findings:
+
+![HTML report: counts for each state](docs/images/html-report-summary.png)
+
+![HTML report: failing requirements with their findings](docs/images/html-report-requirements.png)
+
+These screenshots, and the Power BI and roll-up ones below, come from the
+fictional WESTMARK test machines, with a few settings changed so that some requirements fail.
+
 ### Power BI
 
 Point every machine's `-OutputPath` at one shared folder. The Power BI template
@@ -325,6 +336,8 @@ one in the Framework slicer on the first three.
   choose Drill through. It lists the machine's requirements with findings, evidence and
   notes.
 
+![Power BI template: the Overview page for four sample machines](docs/images/powerbi-overview.png)
+
 Like the scan's own reports, the template shows counts and states, never a
 score. Refresh after new scans arrive. The template keeps no data, but a
 `.pbix` saved from it does, so treat that file like the reports.
@@ -346,6 +359,8 @@ the `.json` reports and doesn't scan or re-evaluate anything.
 .\New-ComplianceRollup.ps1 -Path \\fileserver\scans
 .\New-ComplianceRollup.ps1 -Path .\Reports -Framework DISA-STIG-WS2025-MS -MaxAge 7 -OutputPath .\Rollup
 ```
+
+![Roll-up: each machine's latest counts, trend lines and the weekly chart](docs/images/rollup.png)
 
 Each computer counts once per framework, by its latest scan in the folder. For
 each framework it writes `compliance-rollup-<framework>.html`, `.csv` and
@@ -591,6 +606,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.16.1 | 2026-10-30 | README: screenshots of the HTML report, the Power BI template and the roll-up, made from the fictional WESTMARK test machines. |
 | 0.16.0 | 2026-10-30 | Scheduled scans. `Register-ComplianceScanTask.ps1` installs the scanner to Program Files and registers a weekly (or daily) task that runs it as SYSTEM, with a random delay, writing to a shared folder; `-Unregister` removes it. The scanner takes several frameworks in one run, collecting once. When `-OutputPath` can't be written, `-FallbackPath` keeps the reports and a later run delivers them, oldest first; `-KeepDays` (default 90) removes ones that wait too long. `-LogPath` adds a row per run to a CSV. The README gives share permissions that let machines add reports without reading each other's. |
 | 0.15.1 | 2026-10-30 | README: the Power BI template opens with its three parameters empty, so the table gives suggested values to type in, and says where to change them later. |
 | 0.15.0 | 2026-10-29 | Power BI template. `EndpointComplianceScan.pbit` on the Release, built from the Power BI project in `powerbi/`, reads every `.records.json` in a folder: an Overview of each machine's latest scan, Trends per machine and week by week (lines break where scans don't compare), a Requirements grid, and a Machine detail drill-through. No account needed. |

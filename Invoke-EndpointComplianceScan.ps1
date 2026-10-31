@@ -219,6 +219,9 @@
     0.16.0 2026-10-30  Scheduled scans: several frameworks per run,
                        -FallbackPath, -KeepDays and -LogPath, and
                        Register-ComplianceScanTask.ps1.
+    0.16.1 2026-10-30  README: screenshots of the HTML report, the Power BI
+                       template and the roll-up, from the fictional WESTMARK
+                       test machines.
 #>
 
 [CmdletBinding()]
@@ -240,7 +243,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.16.0'
+$ComplianceScanVersion = '0.16.1'
 $SnapshotSchemaVersion = 5
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }
