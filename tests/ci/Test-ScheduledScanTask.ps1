@@ -5,7 +5,8 @@
 .DESCRIPTION
     Used by the live-scan job of the Tests workflow, on a throwaway Windows
     runner where the job is elevated. Registers the task with
-    Register-ComplianceScanTask.ps1 and checks what Task Scheduler holds. With
+    Register-ComplianceScanTask.ps1 and checks what Task Scheduler holds, and
+    that the data folder is limited to SYSTEM and Administrators. With
     -Run it also starts the task twice: once with a writable share, which must
     receive a report per framework, and once with a share that can't be written,
     whose reports must land in the fallback folder. Then it unregisters the task
@@ -14,7 +15,9 @@
 
 [CmdletBinding()]
 param(
+    # A scratch folder for the install, data and share folders.
     [Parameter(Mandatory)][string]$WorkPath,
+    # Also run the task, to a writable share and to one that can't be written.
     [switch]$Run
 )
 
@@ -64,6 +67,14 @@ try {
     if ($task.Actions[0].Arguments -notmatch [regex]::Escape("-Framework `"$frameworks`"")) { throw "Unexpected arguments: $($task.Actions[0].Arguments)" }
     if (-not (Test-Path -LiteralPath (Join-Path $install 'frameworks/cmmc.psd1'))) { throw "The scanner isn't installed in $install." }
     Write-Host "Registered: $($task.Actions[0].Execute) $($task.Actions[0].Arguments)"
+
+    # The data folder is SYSTEM's and Administrators' only, not inherited.
+    $acl = Get-Acl -LiteralPath $data
+    if (-not $acl.AreAccessRulesProtected) { throw "$data still inherits access from its parent." }
+    $who = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique)
+    if (($who -join ',') -ne 'S-1-5-18,S-1-5-32-544') { throw "$data grants access to $($who -join ', '), not only SYSTEM and Administrators." }
+    if (-not (Test-Path -LiteralPath (Join-Path $data 'Pending') -PathType Container)) { throw "No fallback folder in $data." }
+    Write-Host "Data folder $data is limited to SYSTEM and Administrators."
 
     if ($Run) {
         # A writable share gets one report set per framework, from one run.

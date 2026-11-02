@@ -69,6 +69,15 @@ BeforeAll {
         $path
     }
 
+    function Add-FolderLink {
+        # A link to a folder: a junction on Windows (no privilege needed), a
+        # symbolic link elsewhere.
+        param([string]$Path, [string]$Target)
+        $type = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { 'Junction' } else { 'SymbolicLink' }
+        $null = New-Item -ItemType $type -Path $Path -Value $Target
+        $Path
+    }
+
     function Split-TaskArgument {
         # The task's command line as Windows hands it to powershell.exe: quoted
         # values are one argument, without their quotes.
@@ -191,6 +200,36 @@ Describe 'Fallback folder' {
         @(Get-ChildItem -LiteralPath $f | ForEach-Object Name | Sort-Object) | Should -Be @('compliance-scan-new.json', 'other-old.txt')
     }
 
+    It 'leaves out, and names, a waiting file another account owns' {
+        $f = Get-TestFolder
+        $out = Get-TestFolder
+        $null = Add-PendingFile $f 'compliance-scan-ours.json' 2
+        $null = Add-PendingFile $f 'compliance-scan-planted.json' 1
+        Mock Get-TrustedOwnerSid { @('S-1-5-18', 'S-1-5-32-544') }
+        Mock Get-ItemOwnerSid { 'S-1-5-18' }
+        Mock Get-ItemOwnerSid { 'S-1-5-21-1000-2000-3000-1001' } -ParameterFilter { $Path -like '*planted*' }
+        @(Get-PendingReport $f | ForEach-Object Name) | Should -Be @('compliance-scan-ours.json')
+        $untrusted = @(Get-PendingReport $f -Untrusted)
+        $untrusted.Name | Should -Be 'compliance-scan-planted.json'
+        $untrusted.Reason | Should -BeLike '*owned by*'
+        $sent = Send-PendingReport -FallbackPath $f -OutputPath $out
+        $sent.Delivered | Should -Be 1
+        $sent.Problem | Should -BeLike "*Not delivering 1 file*compliance-scan-planted.json (it is owned by*"
+        Test-Path -LiteralPath (Join-Path $out 'compliance-scan-planted.json') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $f 'compliance-scan-planted.json') | Should -BeTrue
+    }
+
+    It 'leaves out a waiting file that is a link, and never removes one as stale' {
+        $f = Get-TestFolder
+        $null = Add-PendingFile $f 'compliance-scan-linked.json' 100
+        Mock Test-ReparsePoint { $false }
+        Mock Test-ReparsePoint { $true } -ParameterFilter { $Path -like '*linked*' }
+        @(Get-PendingReport $f).Count | Should -Be 0
+        (@(Get-PendingReport $f -Untrusted)).Reason | Should -Be 'it is a junction or link'
+        @(Remove-StalePendingReport -FallbackPath $f -KeepDays 90 -Now ([datetime]::UtcNow)).Count | Should -Be 0
+        Test-Path -LiteralPath (Join-Path $f 'compliance-scan-linked.json') | Should -BeTrue
+    }
+
     It 'removes nothing under -WhatIf' {
         $f = Get-TestFolder
         $null = Add-PendingFile $f 'compliance-scan-old.json' 100
@@ -253,6 +292,18 @@ Describe 'A scheduled-style run' {
         $row.Destination | Should -Be $share
         [int]$row.Delivered | Should -BeGreaterThan 0
         $row.Pending | Should -Be '0'
+    }
+
+    It 'refuses a fallback folder that is a link, writing nothing through it' {
+        $target = Get-TestFolder
+        $link = Add-FolderLink -Path (Join-Path (Get-TestFolder) 'Pending') -Target $target
+        $log = Join-Path (Get-TestFolder) 'scan-log.csv'
+        $ErrorActionPreference = 'Continue'
+        $output = & $Exe -NoProfile -NonInteractive -File $ScriptPath -Framework CMMC -FromSnapshot $FixturePath -OutputPath (Get-UnwritableFolder) -FallbackPath $link -LogPath $log 2>&1
+        $LASTEXITCODE | Should -Be 2
+        "$output" | Should -Match 'junction or link'
+        @(Get-ChildItem -LiteralPath $target -Force).Count | Should -Be 0
+        (@(Import-Csv -LiteralPath $log)[-1]).Message | Should -BeLike '*junction or link*'
     }
 
     It 'exits 2 when the share is away and there is no fallback folder' {
@@ -367,10 +418,97 @@ Describe 'Installing the scanner' {
         Test-Path -LiteralPath (Join-Path $install 'frameworks/cmmc.psd1') | Should -BeTrue
     }
 
+    It 'removes a profile and a STIG file that an earlier install had and this one does not' {
+        $install = Get-TestFolder
+        $profileFile = Join-Path (Get-TestFolder) 'site.psd1'
+        Set-Content -LiteralPath $profileFile -Value '@{}'
+        $stigFile = Join-Path $PSScriptRoot 'fixtures/stig-sample-xccdf.xml'
+        Install-ScannerCopy -File (Get-InstallFile -SourceRoot $Root -ProfilePath $profileFile -StigPath $stigFile) -InstallPath $install
+        Test-Path -LiteralPath (Join-Path $install 'ComplianceScan.local.psd1') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $install 'stig/stig-sample-xccdf.xml') | Should -BeTrue
+
+        # Registered again without them: their thresholds, deviations and STIG go.
+        Install-ScannerCopy -File (Get-InstallFile -SourceRoot $Root) -InstallPath $install
+        Test-Path -LiteralPath (Join-Path $install 'ComplianceScan.local.psd1') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $install 'stig/stig-sample-xccdf.xml') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $install 'frameworks/cmmc.psd1') | Should -BeTrue
+    }
+
+    It 'keeps the profile and STIG file this install includes' {
+        $install = Get-TestFolder
+        $profileFile = Join-Path (Get-TestFolder) 'site.psd1'
+        Set-Content -LiteralPath $profileFile -Value '@{ MinPasswordLength = 15 }'
+        $files = Get-InstallFile -SourceRoot $Root -ProfilePath $profileFile -StigPath (Join-Path $PSScriptRoot 'fixtures/stig-sample-xccdf.xml')
+        Install-ScannerCopy -File $files -InstallPath $install
+        Install-ScannerCopy -File $files -InstallPath $install
+        Get-Content -LiteralPath (Join-Path $install 'ComplianceScan.local.psd1') | Should -Be '@{ MinPasswordLength = 15 }'
+        Test-Path -LiteralPath (Join-Path $install 'stig/stig-sample-xccdf.xml') | Should -BeTrue
+    }
+
     It 'copies nothing under -WhatIf' {
         $install = Join-Path (Get-TestFolder) 'EndpointComplianceScan'
         Install-ScannerCopy -File (Get-InstallFile -SourceRoot $Root) -InstallPath $install -WhatIf
         Test-Path -LiteralPath $install | Should -BeFalse
+    }
+}
+
+Describe 'The data folder' {
+    BeforeEach {
+        Mock Set-DataFolderAccess { }
+    }
+
+    It 'gives access to SYSTEM and Administrators only, not inherited from ProgramData' {
+        $DataFolderSddl | Should -Match '^D:PAI'
+        $aces = @([regex]::Matches($DataFolderSddl, '\(([^)]*)\)') | ForEach-Object { $_.Groups[1].Value })
+        $aces | Should -Be @('A;OICI;FA;;;SY', 'A;OICI;FA;;;BA')
+    }
+
+    It 'creates the folder and its fallback folder, then limits access' {
+        $data = Join-Path (Get-TestFolder) 'EndpointComplianceScan'
+        Protect-DataFolder -DataPath $data
+        Test-Path -LiteralPath (Join-Path $data 'Pending') -PathType Container | Should -BeTrue
+        Should -Invoke Set-DataFolderAccess -Times 1 -Exactly -ParameterFilter { $Path -eq $data }
+    }
+
+    It 'limits access on a folder that is already there' {
+        $data = Get-TestFolder
+        $null = Add-PendingFile $data 'scan-log.csv' 1
+        Protect-DataFolder -DataPath $data
+        Should -Invoke Set-DataFolderAccess -Times 1 -Exactly -ParameterFilter { $Path -eq $data }
+    }
+
+    It 'changes nothing under -WhatIf' {
+        $data = Join-Path (Get-TestFolder) 'EndpointComplianceScan'
+        Protect-DataFolder -DataPath $data -WhatIf
+        Test-Path -LiteralPath $data | Should -BeFalse
+        Should -Invoke Set-DataFolderAccess -Times 0 -Exactly
+    }
+
+    It 'refuses a folder with a link in it, before changing anything' {
+        $data = Get-TestFolder
+        $null = Add-FolderLink -Path (Join-Path $data 'Pending') -Target (Get-TestFolder)
+        { Protect-DataFolder -DataPath $data } | Should -Throw '*Pending is a junction or link*'
+        Should -Invoke Set-DataFolderAccess -Times 0 -Exactly
+    }
+
+    It 'refuses a folder holding something another account owns' {
+        $data = Get-TestFolder
+        $null = New-Item -ItemType Directory -Path (Join-Path $data 'Pending')
+        $null = Add-PendingFile (Join-Path $data 'Pending') 'compliance-scan-planted.json' 1
+        Mock Get-TrustedOwnerSid { @('S-1-5-18', 'S-1-5-32-544') }
+        Mock Get-ItemOwnerSid { 'S-1-5-32-544' }
+        Mock Get-ItemOwnerSid { 'S-1-5-21-1000-2000-3000-1001' } -ParameterFilter { $Path -like '*planted*' }
+        { Protect-DataFolder -DataPath $data } | Should -Throw '*compliance-scan-planted.json is owned by S-1-5-21-1000-2000-3000-1001*'
+        Should -Invoke Set-DataFolderAccess -Times 0 -Exactly
+    }
+
+    It 'accepts a folder that is missing, or that trusted accounts own' {
+        { Assert-DataFolderSafe (Join-Path (Get-TestFolder) 'missing') } | Should -Not -Throw
+        $data = Get-TestFolder
+        $null = Add-PendingFile $data 'scan-log.csv' 1
+        Mock Get-TrustedOwnerSid { @('S-1-5-18') }
+        Mock Get-ItemOwnerSid { 'S-1-5-18' }
+        { Assert-DataFolderSafe $data } | Should -Not -Throw
     }
 }
 

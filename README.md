@@ -195,7 +195,20 @@ on Monday. Then it:
   after two hours.
 
 Running it again replaces the task and refreshes the installed copy, so it is
-also how to update a machine to a new release.
+also how to update a machine to a new release. A profile or STIG file that an
+earlier run installed and this one doesn't give is removed, so thresholds and
+accepted deviations you've dropped stop applying.
+
+The data folder, `%ProgramData%\EndpointComplianceScan`, is made readable and
+writable by SYSTEM and Administrators only. ProgramData lets any user create
+files in a subfolder, and a file planted in the fallback folder would otherwise
+reach the share as this computer's report. If the data folder holds a junction or
+link, or anything another account owns, the script stops before installing and
+says what to remove.
+
+The task runs as SYSTEM, which has no user settings of its own, so the few STIG
+rules that read a per-user (HKCU) setting are Skipped in a scheduled scan, with a
+note saying to check them in a user's session.
 
 | Parameter | Default | |
 | --- | --- | --- |
@@ -222,6 +235,9 @@ When `-OutputPath` can't be written, the scan still runs, its reports go to the
 fallback folder, and it warns. The next run that can write to the share first
 moves the waiting reports there, oldest first, so the roll-up sees every scan in
 order. Reports that wait longer than `-KeepDays` are removed, with a warning.
+A waiting file the scan didn't write, because it is a link or another account
+owns it, stays where it is, isn't delivered, and is named in a warning. A
+fallback folder that is itself a junction or link stops the scan.
 
 The same parameters work at the console. Without `-FallbackPath`, a report folder
 that can't be written stops the scan before it collects anything.
@@ -472,6 +488,10 @@ a registry value, a security policy value, an audit subcategory, a user right, a
 service's start type, a Windows feature, a named endpoint test, or on a domain
 controller a named directory test. Most of the STIGs' automated rules are these.
 
+A per-user (HKCU) setting is read from the account running the scan. A scan run
+as SYSTEM, as a scheduled scan is, reports those rules Skipped rather than judging
+SYSTEM's own settings.
+
 User rights are matched by SID, so the result is the same in any Windows display
 language. Domain Admins and Enterprise Admins are required only on a machine in
 a domain.
@@ -606,6 +626,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 0.17.0 | 2026-11-01 | Fixes before 1.0. `Register-ComplianceScanTask.ps1` makes the data folder readable and writable by SYSTEM and Administrators only, since ProgramData lets any user create files in a subfolder and a planted file in the fallback folder would reach the share as that computer's report; a data folder holding a link, or anything another account owns, is refused. The scanner doesn't deliver a waiting file that is a link or that another account owns, and stops when the fallback folder is a link. Registering again removes a profile or STIG file an earlier run installed, so dropped thresholds and accepted deviations stop applying. A scan run as SYSTEM reports per-user (HKCU) settings Skipped instead of judging SYSTEM's own, which made those STIG rules fail in every scheduled scan. Snapshot schema 6, which records whether the scan ran as SYSTEM; schema 5 snapshots still read. On Windows Server without the BitLocker feature, the BitLocker check now reports a Fail saying BitLocker isn't installed; before, the collector errored and the scan exited 2. `.gitignore` covers every report and roll-up file. New tests keep the README's framework table, the version notes, the changelog and the live-scan job's framework list in step with the code. |
 | 0.16.1 | 2026-10-30 | README: screenshots of the HTML report, the Power BI template and the roll-up, made from the fictional WESTMARK test machines. |
 | 0.16.0 | 2026-10-30 | Scheduled scans. `Register-ComplianceScanTask.ps1` installs the scanner to Program Files and registers a weekly (or daily) task that runs it as SYSTEM, with a random delay, writing to a shared folder; `-Unregister` removes it. The scanner takes several frameworks in one run, collecting once. When `-OutputPath` can't be written, `-FallbackPath` keeps the reports and a later run delivers them, oldest first; `-KeepDays` (default 90) removes ones that wait too long. `-LogPath` adds a row per run to a CSV. The README gives share permissions that let machines add reports without reading each other's. |
 | 0.15.1 | 2026-10-30 | README: the Power BI template opens with its three parameters empty, so the table gives suggested values to type in, and says where to change them later. |

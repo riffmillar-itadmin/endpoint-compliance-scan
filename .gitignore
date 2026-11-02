@@ -2,8 +2,10 @@
 #  Scan output names real machines and real local accounts. Keep it out.
 # ---------------------------------------------------------------------------
 Reports/
-compliance-scan-*.csv
-compliance-scan-*.json
+#  Every report type (.html, .csv, .json, .records.json, .ckl, .cklb) and the
+#  roll-up's pages and CSVs.
+compliance-scan-*
+compliance-rollup-*
 #  Names used before v0.2.0.
 cmmc-scan-*.csv
 cmmc-scan-*.json
