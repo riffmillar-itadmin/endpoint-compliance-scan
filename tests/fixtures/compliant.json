@@ -1,11 +1,12 @@
 {
-  "SchemaVersion": 5,
+  "SchemaVersion": 6,
   "Meta": {
     "Tool": "endpoint-compliance-scan",
     "Version": "0.3.0",
     "ComputerName": "WESTMARK-PC01",
     "CollectedUtc": "2026-10-20T15:00:00.0000000Z",
     "IsElevated": true,
+    "AsSystem": false,
     "PSVersion": "5.1.26100.1",
     "OSCaption": "Microsoft Windows 11 Pro",
     "OSVersion": "10.0.26100",

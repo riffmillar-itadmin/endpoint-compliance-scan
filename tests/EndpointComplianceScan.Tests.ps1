@@ -1275,6 +1275,7 @@ Describe 'Each check fails on a bad setting' {
         @{ Check = 'SC-LegacyTlsDisabled'; Case = 'TLS 1.1 client is on'; Mutate = { param($s) Write-RegFact $s 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Client\Enabled' 1 } }
         @{ Check = 'SC-FipsMode'; Case = 'FIPS mode is off'; Mutate = { param($s) Write-RegFact $s "$Lsa\FipsAlgorithmPolicy\Enabled" 0 } }
         @{ Check = 'SC-BitLocker'; Case = 'protection is off'; Mutate = { param($s) $s.BitLocker.ProtectionStatus = 'Off' } }
+        @{ Check = 'SC-BitLocker'; Case = 'BitLocker is not installed (Windows Server without the feature)'; Mutate = { param($s) $s.BitLocker.ProtectionStatus = 'NotInstalled' } }
         @{ Check = 'SI-UpdateRecency'; Case = 'the newest update is 80 days old'; Mutate = { param($s) $s.Hotfix.LatestInstalledOn = '2026-08-01T00:00:00Z' } }
         @{ Check = 'SI-UpdateRecency'; Case = 'no update has an install date'; Mutate = { param($s) $s.Hotfix.LatestInstalledOn = $null } }
         @{ Check = 'SI-AntivirusActive'; Case = 'Defender real-time is off and nothing else is registered'; Mutate = { param($s) $s.Defender.RealTimeProtectionEnabled = $false } }
@@ -1285,6 +1286,34 @@ Describe 'Each check fails on a bad setting' {
         & $Mutate $s
         $r = Get-CheckState $s $Check
         $r.State | Should -Be 'Fail' -Because $r.Evidence
+    }
+}
+
+Describe 'BitLocker not installed' {
+    It 'says BitLocker is not installed, rather than reporting a protection status' {
+        $s = Get-Fixture
+        $s.BitLocker.ProtectionStatus = 'NotInstalled'
+        $r = Get-CheckState $s 'SC-BitLocker'
+        $r.State | Should -Be 'Fail'
+        $r.Evidence | Should -BeLike "*BitLocker isn't installed*C:*"
+    }
+
+    It 'recognises an unregistered CIM namespace by its error code, not its message' {
+        $missing = [pscustomobject]@{ Exception = [pscustomobject]@{ NativeErrorCode = 'InvalidNamespace'; Message = 'Espace de noms non valide' } }
+        $denied = [pscustomobject]@{ Exception = [pscustomobject]@{ NativeErrorCode = 'AccessDenied'; Message = 'Invalid namespace' } }
+        $plain = [pscustomobject]@{ Exception = [InvalidOperationException]::new('Invalid namespace') }
+        Test-CimInvalidNamespace $missing | Should -BeTrue
+        Test-CimInvalidNamespace $denied | Should -BeFalse
+        Test-CimInvalidNamespace $plain | Should -BeFalse
+    }
+
+    It 'recognises it by the error ID, or wrapped in another exception' {
+        $byId = [pscustomobject]@{ FullyQualifiedErrorId = 'HRESULT 0x8004100e,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand'; Exception = [InvalidOperationException]::new('x') }
+        $wrapped = [pscustomobject]@{ FullyQualifiedErrorId = 'ActionPreferenceStop'; Exception = [pscustomobject]@{ InnerException = [pscustomobject]@{ NativeErrorCode = 'InvalidNamespace' } } }
+        $other = [pscustomobject]@{ FullyQualifiedErrorId = 'HRESULT 0x80041003,Microsoft.Management.Infrastructure.CimCmdlets.GetCimInstanceCommand'; Exception = [InvalidOperationException]::new('x') }
+        Test-CimInvalidNamespace $byId | Should -BeTrue
+        Test-CimInvalidNamespace $wrapped | Should -BeTrue
+        Test-CimInvalidNamespace $other | Should -BeFalse
     }
 }
 
@@ -1469,6 +1498,56 @@ Describe 'No silent passes' {
         $s.SchemaVersion = 99
         $s | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path
         { Read-Snapshot $path } | Should -Throw '*schema version*'
+    }
+
+    It 'reads a schema 5 snapshot, which has no AsSystem, as a scan run by a user' {
+        $path = Join-Path $TestDrive 'schema5.json'
+        $s = Get-Fixture
+        $s.SchemaVersion = 5
+        $s.Meta.PSObject.Properties.Remove('AsSystem')
+        $s | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path
+        $e = @{ Source = 'Registry'; Path = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer'; Name = 'AlwaysInstallElevated'; Op = 'ne'; Value = 1; AbsentOk = $true }
+        (Test-Expectation (Read-Snapshot $path) $e).State | Should -Be 'Pass'
+    }
+}
+
+Describe 'Per-user settings in a scan run as SYSTEM' {
+    BeforeAll {
+        $script:UserExpect = @{ Source = 'Registry'; Path = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer'; Name = 'AlwaysInstallElevated'; Op = 'ne'; Value = 1; AbsentOk = $true }
+        $script:MachineExpect = @{ Source = 'Registry'; Path = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Installer'; Name = 'AlwaysInstallElevated'; Op = 'ne'; Value = 1; AbsentOk = $true }
+    }
+
+    It 'judges an HKCU setting as usual in a scan run by a user' {
+        (Test-Expectation (Get-Fixture) $UserExpect).State | Should -Be 'Pass'
+    }
+
+    It 'skips an HKCU setting, saying why, when the scan ran as SYSTEM' {
+        $s = Get-Fixture
+        $s.Meta.AsSystem = $true
+        $r = Test-Expectation $s $UserExpect
+        $r.State | Should -Be 'Skipped'
+        $r.Evidence | Should -BeLike '*per-user*ran as SYSTEM*'
+    }
+
+    It 'skips it even when the SYSTEM value would fail, so no false finding is reported' {
+        $s = Get-Fixture
+        $s.Meta.AsSystem = $true
+        Write-RegFact $s 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Installer\AlwaysInstallElevated' 1
+        (Test-Expectation $s $UserExpect).State | Should -Be 'Skipped'
+    }
+
+    It 'still judges HKLM settings when the scan ran as SYSTEM' {
+        $s = Get-Fixture
+        $s.Meta.AsSystem = $true
+        (Test-Expectation $s $MachineExpect).State | Should -Be 'Pass'
+    }
+
+    It 'covers every HKCU expectation in the STIG catalogs' {
+        $s = Get-Fixture
+        $s.Meta.AsSystem = $true
+        $user = @(foreach ($c in $Catalogs) { foreach ($r in @($c.Requirements)) { if ($r.Contains('Expect')) { @($r.Expect) | Where-Object { $_.Contains('Path') -and "$($_.Path)" -like 'HKCU:*' } } } })
+        $user.Count | Should -BeGreaterThan 0
+        foreach ($e in $user) { (Test-Expectation $s $e).State | Should -Be 'Skipped' -Because "$($e.Path)\$($e.Name)" }
     }
 }
 

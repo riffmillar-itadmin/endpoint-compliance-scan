@@ -84,7 +84,9 @@
     Folder for the reports when -OutputPath can't be written, such as a share
     that's away. A later run that can write to -OutputPath first moves the
     waiting reports there, oldest first. Without it, a folder that can't be
-    written stops the scan.
+    written stops the scan. A fallback folder that is a junction or link, or
+    that another account owns, stops the scan; a waiting file that is a link,
+    or that another account owns, stays where it is and isn't delivered.
 
 .PARAMETER KeepDays
     Days a report may wait in -FallbackPath before it's removed. Defaults to 90.
@@ -222,6 +224,13 @@
     0.16.1 2026-10-30  README: screenshots of the HTML report, the Power BI
                        template and the roll-up, from the fictional WESTMARK
                        test machines.
+    0.17.0 2026-11-01  Fixes before 1.0. Waiting reports that are links, or
+                       that another account owns, aren't delivered, and a
+                       fallback folder that is a link stops the scan. A scan
+                       run as SYSTEM skips per-user (HKCU) settings instead
+                       of failing them. Snapshot schema 6 (reads 5).
+                       BitLocker not installed (Windows Server without the
+                       feature) is a Fail, not a collector Error.
 #>
 
 [CmdletBinding()]
@@ -243,8 +252,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.16.1'
-$SnapshotSchemaVersion = 5
+$ComplianceScanVersion = '0.17.0'
+$SnapshotSchemaVersion = 6
+# Older schemas this version still reads. Schema 5 has no Meta.AsSystem, which
+# reads as a scan run by a user.
+$SnapshotSchemaReadable = @(5, 6)
 
 $StateRank = @{ Fail = 0; Error = 1; Accepted = 2; Skipped = 3; Manual = 4; Pass = 5; NotApplicable = 6 }
 
@@ -945,6 +957,10 @@ function Get-CheckTable {
             Test  = {
                 param($S, $T)
                 $b = Get-Prop $S 'BitLocker'
+                if ("$($b.ProtectionStatus)" -eq 'NotInstalled') {
+                    # Windows Server has no BitLocker until the feature is added.
+                    return New-CheckResult Fail "BitLocker isn't installed on this Windows, so $($b.MountPoint) isn't protected by BitLocker." 'Add the BitLocker feature and turn it on, or show the volume is encrypted another way.'
+                }
                 $ev = "$($b.MountPoint) protection $($b.ProtectionStatus)."
                 if ("$($b.ProtectionStatus)" -eq 'On') { return New-CheckResult Pass $ev }
                 New-CheckResult Fail $ev
@@ -1628,6 +1644,11 @@ function Test-Expectation {
     }
     switch ("$($Expect.Source)") {
         'Registry' {
+            if ("$($Expect.Path)" -like 'HKCU:*' -and (Get-Prop (Get-Prop $Snapshot 'Meta') 'AsSystem')) {
+                # A scheduled scan runs as SYSTEM, whose own user settings no user
+                # has, and user policy never applies to it.
+                return New-CheckResult Skipped "$($Expect.Name) is a per-user setting, and this scan ran as SYSTEM. Check it in a user's session, or in Group Policy results for the users."
+            }
             $f = Get-RegFact $Snapshot "$($Expect.Path)\$($Expect.Name)"
             if (Get-Prop $f 'Denied') { return New-CheckResult Skipped "$($Expect.Name) is not readable without elevation." }
             $label = $Expect.Name
@@ -2049,7 +2070,7 @@ function Read-Snapshot {
     param([string]$Path)
     $s = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     $v = Get-Prop $s 'SchemaVersion'
-    if ($v -ne $SnapshotSchemaVersion) { throw "Snapshot $Path has schema version '$v'; this script reads version $SnapshotSchemaVersion." }
+    if ($SnapshotSchemaReadable -notcontains $v) { throw "Snapshot $Path has schema version '$v'; this script reads versions $($SnapshotSchemaReadable -join ' and ')." }
     return $s
 }
 
@@ -2111,6 +2132,21 @@ function Invoke-Collector {
         $Snapshot[$Name] = $null
         $Snapshot.Collection[$Name] = [ordered]@{ Status = 'Error'; Reason = $_.Exception.Message }
     }
+}
+
+function Test-CimInvalidNamespace {
+    # Whether a CIM call failed because the namespace isn't registered, judged by
+    # the error code rather than the message, which Windows localizes.
+    # WMI's own code for it is 0x8004100E, which the CIM cmdlets put in the error
+    # ID. The exception may be wrapped, so inner exceptions are checked too.
+    param($ErrorRecord)
+    if ("$(Get-Prop $ErrorRecord 'FullyQualifiedErrorId')" -like 'HRESULT 0x8004100e,*') { return $true }
+    $e = Get-Prop $ErrorRecord 'Exception'
+    while ($null -ne $e) {
+        if ("$(Get-Prop $e 'NativeErrorCode')" -eq 'InvalidNamespace') { return $true }
+        $e = Get-Prop $e 'InnerException'
+    }
+    $false
 }
 
 function Read-RegistryValue {
@@ -2456,6 +2492,7 @@ function Get-EndpointSnapshot {
             ComputerName = $env:COMPUTERNAME
             CollectedUtc = ConvertTo-IsoDate (Get-Date)
             IsElevated   = $elevated
+            AsSystem     = [Security.Principal.WindowsIdentity]::GetCurrent().IsSystem
             PSVersion    = "$($PSVersionTable.PSVersion)"
             OSCaption    = "$($os.Caption)"
             OSVersion    = "$($os.Version)"
@@ -2609,7 +2646,14 @@ function Get-EndpointSnapshot {
 
     Invoke-Collector $snap 'BitLocker' $elevated -RequiresAdmin {
         $drive = $env:SystemDrive
-        $v = Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -Filter "DriveLetter='$drive'"
+        try {
+            $v = Get-CimInstance -Namespace 'root/cimv2/Security/MicrosoftVolumeEncryption' -ClassName Win32_EncryptableVolume -Filter "DriveLetter='$drive'" -ErrorAction Stop
+        } catch {
+            # Windows Server registers BitLocker's namespace only once the
+            # BitLocker feature is installed; without it, nothing is protected.
+            if (Test-CimInvalidNamespace $_) { return [ordered]@{ MountPoint = $drive; ProtectionStatus = 'NotInstalled' } }
+            throw
+        }
         if ($null -eq $v) { throw [System.NotSupportedException]::new("No BitLocker information for $drive.") }
         $status = switch ([int]$v.ProtectionStatus) { 0 { 'Off' } 1 { 'On' } default { 'Unknown' } }
         [ordered]@{ MountPoint = $drive; ProtectionStatus = $status }
@@ -3464,26 +3508,78 @@ function Resolve-ReportFolder {
     }
 }
 
+function Get-ItemOwnerSid {
+    # The owner of a file or folder, as a SID string. $null where there are no
+    # Windows ACLs to read.
+    param([string]$Path)
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return $null }
+    (Get-Acl -LiteralPath $Path).GetOwner([Security.Principal.SecurityIdentifier]).Value
+}
+
+function Get-TrustedOwnerSid {
+    # Owners whose files the scan trusts: SYSTEM, Administrators, TrustedInstaller
+    # and the account running it. Empty where there are no Windows ACLs.
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return @() }
+    @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464',
+        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value)
+}
+
+function Test-ReparsePoint {
+    param([string]$Path)
+    [bool]((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
+}
+
+function Get-UntrustedReason {
+    # Why the scan won't trust a file or folder it didn't write, or '' when it
+    # can: a junction or link, or an owner that isn't a trusted account.
+    param([string]$Path, [string[]]$TrustedOwner)
+    if (Test-ReparsePoint $Path) { return 'it is a junction or link' }
+    $owner = Get-ItemOwnerSid $Path
+    if ($owner -and $TrustedOwner -notcontains $owner) {
+        $name = $owner
+        try {
+            $name = ([Security.Principal.SecurityIdentifier]$owner).Translate([Security.Principal.NTAccount]).Value
+        } catch {
+            Write-Verbose "Couldn't name the owner ${owner}: $($_.Exception.Message)"
+        }
+        return "it is owned by $name"
+    }
+    ''
+}
+
 function Get-PendingReport {
-    # Scan reports waiting in the fallback folder, oldest first.
-    param([string]$FallbackPath)
+    # Scan reports waiting in the fallback folder, oldest first. A file the scan
+    # can't trust, because it is a link or another account owns it, is left out;
+    # -Untrusted lists those instead, with the reason.
+    param([string]$FallbackPath, [switch]$Untrusted)
     if (-not $FallbackPath -or -not (Test-Path -LiteralPath $FallbackPath -PathType Container)) { return @() }
-    @(Get-ChildItem -LiteralPath $FallbackPath -File -Filter 'compliance-scan-*' | Sort-Object LastWriteTimeUtc, Name)
+    $trusted = @(Get-TrustedOwnerSid)
+    @(foreach ($file in @(Get-ChildItem -LiteralPath $FallbackPath -File -Filter 'compliance-scan-*' | Sort-Object LastWriteTimeUtc, Name)) {
+            $reason = Get-UntrustedReason $file.FullName $trusted
+            if ($Untrusted -and $reason) { [pscustomobject]@{ Name = $file.Name; Reason = $reason } }
+            elseif (-not $Untrusted -and -not $reason) { $file }
+        })
 }
 
 function Send-PendingReport {
     # Moves the reports waiting in the fallback folder to -OutputPath, oldest
     # first. Stops at the first one that fails, so the rest wait for the next run.
+    # Files the scan can't trust stay where they are, and Problem names them.
     param([string]$FallbackPath, [string]$OutputPath)
     $pending = @(Get-PendingReport $FallbackPath)
     $moved = 0
     $problem = ''
+    $skipped = @(Get-PendingReport $FallbackPath -Untrusted)
+    if ($skipped.Count -gt 0) {
+        $problem = "Not delivering $($skipped.Count) file(s) in $FallbackPath that this scan didn't write: " +
+            (($skipped | ForEach-Object { "$($_.Name) ($($_.Reason))" }) -join ', ') + '.'
+    }
     foreach ($file in $pending) {
         try {
             Move-Item -LiteralPath $file.FullName -Destination (Join-Path $OutputPath $file.Name) -Force -ErrorAction Stop
             $moved++
         } catch {
-            $problem = "Stopped moving waiting reports at $($file.Name): $($_.Exception.Message)"
+            $problem = (@($problem, "Stopped moving waiting reports at $($file.Name): $($_.Exception.Message)") | Where-Object { $_ }) -join ' '
             break
         }
     }
@@ -3558,6 +3654,9 @@ $runLog = [ordered]@{
     Message     = ''
 }
 
+# The fallback folder, once it is known to be safe to use.
+$fallback = ''
+
 try {
     $root = $PSScriptRoot
     $catalogs = @(Get-FrameworkCatalog (Join-Path $root 'frameworks'))
@@ -3594,13 +3693,20 @@ try {
 
     # Where the reports go, decided before the scan so a share that's away is
     # reported up front. Reports already waiting in the fallback folder go first.
+    # A fallback folder that is a link, or that another account owns, could hand
+    # this scan reports it didn't write, so it isn't used.
+    if ($FallbackPath -and (Test-Path -LiteralPath $FallbackPath)) {
+        $why = Get-UntrustedReason $FallbackPath @(Get-TrustedOwnerSid)
+        if ($why) { throw "The fallback folder $FallbackPath isn't used, because $why. Remove it, or run Register-ComplianceScanTask.ps1 again." }
+    }
+    $fallback = $FallbackPath
     $folder = $OutputPath
     if (-not $folder) { $folder = Join-Path $root 'Reports' }
-    $target = Resolve-ReportFolder -OutputPath $folder -FallbackPath $FallbackPath
+    $target = Resolve-ReportFolder -OutputPath $folder -FallbackPath $fallback
     $runLog.Destination = $target.Folder
     if ($target.Destination -eq 'Fallback') { Write-Warning $target.Reason }
-    if ($FallbackPath -and $target.Destination -eq 'Output') {
-        $sent = Send-PendingReport -FallbackPath $FallbackPath -OutputPath $folder
+    if ($fallback -and $target.Destination -eq 'Output') {
+        $sent = Send-PendingReport -FallbackPath $fallback -OutputPath $folder
         $runLog.Delivered = $sent.Delivered
         if ($sent.Delivered -gt 0) { Write-Host "Moved $($sent.Delivered) waiting report file(s) from $FallbackPath to $folder." -ForegroundColor Cyan }
         if ($sent.Problem) { Write-Warning $sent.Problem }
@@ -3643,11 +3749,11 @@ try {
     $runLog.Message = "$($_.Exception.Message)"
 }
 
-if ($FallbackPath) {
-    $removed = @(Remove-StalePendingReport -FallbackPath $FallbackPath -KeepDays $KeepDays -Now ([datetime]::UtcNow))
-    if ($removed.Count -gt 0) { Write-Warning "Removed $($removed.Count) waiting report file(s) older than $KeepDays days from ${FallbackPath}: $($removed -join ', ')" }
+if ($fallback) {
+    $removed = @(Remove-StalePendingReport -FallbackPath $fallback -KeepDays $KeepDays -Now ([datetime]::UtcNow))
+    if ($removed.Count -gt 0) { Write-Warning "Removed $($removed.Count) waiting report file(s) older than $KeepDays days from ${fallback}: $($removed -join ', ')" }
     $runLog.Removed = $removed.Count
-    $runLog.Pending = @(Get-PendingReport $FallbackPath).Count
+    $runLog.Pending = @(Get-PendingReport $fallback).Count
 }
 if ($LogPath) {
     $runLog.ExitCode = $code

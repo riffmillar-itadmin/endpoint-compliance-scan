@@ -11,6 +11,12 @@
     read what it needs. The scan only reads; the task, the installed copy and the
     files under %ProgramData%\EndpointComplianceScan are all this leaves.
 
+    The data folder under %ProgramData% is made readable and writable by SYSTEM
+    and Administrators only, since ProgramData lets any user create files in a
+    subfolder and a file planted in the fallback folder would reach the share as
+    this computer's report. A data folder that holds a junction or link, or
+    anything another account owns, is refused before anything is installed.
+
     Each run writes to -OutputPath. When that can't be written (the share is down,
     or the machine is off the network), the reports go to a fallback folder,
     %ProgramData%\EndpointComplianceScan\Pending, and the next run that reaches
@@ -23,7 +29,8 @@
     their reports without reading anyone else's.
 
     Run elevated. Running it again replaces the task and refreshes the installed
-    copy. -Unregister removes the task; add -RemoveFiles to remove the installed
+    copy, removing a profile or STIG file an earlier run installed and this one
+    doesn't. -Unregister removes the task; add -RemoveFiles to remove the installed
     copy too. -WhatIf shows what would change.
 
 .PARAMETER Framework
@@ -120,6 +127,35 @@ $ErrorActionPreference = 'Stop'
 
 $ScannerFile = 'Invoke-EndpointComplianceScan.ps1'
 
+# The data folder's access: SYSTEM and Administrators only, and not inherited
+# from ProgramData, whose default lets any user create files in a subfolder. A
+# file planted in the fallback folder would otherwise go to the share as this
+# computer's report.
+$DataFolderSddl = 'D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
+
+# The next three are the scanner's own, repeated here because this script reads
+# the scanner only in a child scope.
+function Get-ItemOwnerSid {
+    # The owner of a file or folder, as a SID string. $null where there are no
+    # Windows ACLs to read.
+    param([string]$Path)
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return $null }
+    (Get-Acl -LiteralPath $Path).GetOwner([Security.Principal.SecurityIdentifier]).Value
+}
+
+function Get-TrustedOwnerSid {
+    # Owners whose files the scan trusts: SYSTEM, Administrators, TrustedInstaller
+    # and the account running it. Empty where there are no Windows ACLs.
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { return @() }
+    @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464',
+        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value)
+}
+
+function Test-ReparsePoint {
+    param([string]$Path)
+    [bool]((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
+}
+
 function Get-TaskArgument {
     # The powershell.exe command line for the task. Each value is quoted; a value
     # holding a double quote can't be passed safely, so it's refused. Frameworks
@@ -205,10 +241,20 @@ function Install-ScannerCopy {
     [CmdletBinding(SupportsShouldProcess)]
     param([object[]]$File, [string]$InstallPath)
     if (-not $PSCmdlet.ShouldProcess($InstallPath, "Install $($File.Count) scanner files")) { return }
-    $frameworks = Join-Path $InstallPath 'frameworks'
-    if (Test-Path -LiteralPath $frameworks) {
-        $keep = @($File | ForEach-Object { Split-Path $_.Target -Leaf })
-        Get-ChildItem -LiteralPath $frameworks -File -Filter '*.psd1' | Where-Object { $keep -notcontains $_.Name } | Remove-Item -Force
+    # Anything an earlier install left that this one doesn't include goes: a
+    # retired framework, a profile no longer given (its thresholds and accepted
+    # deviations would otherwise still apply), or an older STIG file.
+    $targets = @($File | ForEach-Object { $_.Target })
+    $installed = [Collections.Generic.List[string]]::new()
+    foreach ($folder in 'frameworks', 'stig') {
+        $full = Join-Path $InstallPath $folder
+        if (Test-Path -LiteralPath $full) {
+            foreach ($f in @(Get-ChildItem -LiteralPath $full -File)) { $installed.Add((Join-Path $folder $f.Name)) }
+        }
+    }
+    if (Test-Path -LiteralPath (Join-Path $InstallPath 'ComplianceScan.local.psd1')) { $installed.Add('ComplianceScan.local.psd1') }
+    foreach ($old in @($installed | Where-Object { $targets -notcontains $_ })) {
+        Remove-Item -LiteralPath (Join-Path $InstallPath $old) -Force
     }
     foreach ($f in $File) {
         $dest = Join-Path $InstallPath $f.Target
@@ -258,6 +304,51 @@ function Unregister-ComplianceTask {
     if ($PSCmdlet.ShouldProcess($InstallPath, 'Remove installed scanner')) { Remove-Item -LiteralPath $InstallPath -Recurse -Force }
 }
 
+function Assert-DataFolderSafe {
+    # Refuses a data folder that an account other than SYSTEM, Administrators or
+    # this one could have prepared: a junction or link anywhere in it, or an item
+    # someone else owns. Links aren't followed.
+    param([string]$DataPath)
+    if (-not (Test-Path -LiteralPath $DataPath)) { return }
+    $trusted = @(Get-TrustedOwnerSid)
+    $queue = [Collections.Generic.Queue[string]]::new()
+    $queue.Enqueue($DataPath)
+    while ($queue.Count -gt 0) {
+        $path = $queue.Dequeue()
+        if (Test-ReparsePoint $path) { throw "$path is a junction or link, so it isn't used. Remove it and run this again." }
+        $owner = Get-ItemOwnerSid $path
+        if ($owner -and $trusted -notcontains $owner) {
+            throw "$path is owned by $owner, not by SYSTEM or Administrators, so it isn't used. Check it, remove it, and run this again."
+        }
+        if (Test-Path -LiteralPath $path -PathType Container) {
+            foreach ($child in @(Get-ChildItem -LiteralPath $path -Force)) { $queue.Enqueue($child.FullName) }
+        }
+    }
+}
+
+function Set-DataFolderAccess {
+    # Gives the folder, and what inherits from it, the access in $DataFolderSddl.
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$Path)
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Limit access to SYSTEM and Administrators')) { return }
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetSecurityDescriptorSddlForm($DataFolderSddl, [Security.AccessControl.AccessControlSections]::Access)
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+function Protect-DataFolder {
+    # Creates the data folder and its fallback folder, checked first, with access
+    # for SYSTEM and Administrators only.
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$DataPath)
+    Assert-DataFolderSafe $DataPath
+    if (-not $PSCmdlet.ShouldProcess($DataPath, 'Create the data folder')) { return }
+    foreach ($path in $DataPath, (Join-Path $DataPath 'Pending')) {
+        if (-not (Test-Path -LiteralPath $path)) { $null = New-Item -ItemType Directory -Path $path }
+    }
+    Set-DataFolderAccess -Path $DataPath
+}
+
 function Assert-CanSchedule {
     # Scheduling needs Windows and an elevated session: the copy goes to Program
     # Files and the task runs as SYSTEM.
@@ -294,11 +385,13 @@ try {
         if ($ProfilePath) { $ProfilePath = (Resolve-Path -LiteralPath $ProfilePath).ProviderPath }
         if ($OutputPath -notmatch '^\\\\') { Write-Warning "$OutputPath isn't a UNC path. The task runs as SYSTEM, which sees local folders and shares but not a user's mapped drives." }
 
+        Assert-DataFolderSafe $DataPath
         $files = @(Get-InstallFile -SourceRoot $PSScriptRoot -ProfilePath $ProfilePath -StigPath $StigPath)
         $definition = Get-ComplianceTaskDefinition -InstallPath $InstallPath -DataPath $DataPath -Framework $names -Level $Level -OutputPath $OutputPath `
             -StigFile $(if ($StigPath) { Split-Path $StigPath -Leaf } else { '' }) -Schedule $Schedule -At $At -DaysOfWeek $DaysOfWeek `
             -RandomDelayMinutes $RandomDelayMinutes -KeepDays $KeepDays -TaskName $TaskName
         Install-ScannerCopy -File $files -InstallPath $InstallPath
+        Protect-DataFolder -DataPath $DataPath
         Register-ComplianceTask -Definition $definition
         if ($WhatIfPreference) { exit 0 }
 
