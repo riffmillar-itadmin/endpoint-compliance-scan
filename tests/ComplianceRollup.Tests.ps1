@@ -209,6 +209,12 @@ Describe 'Roll-up report' {
         $LASTEXITCODE | Should -Be 2
     }
 
+    It 'refuses a -MaxAge of 0 or less before reading anything' {
+        foreach ($age in 0, -5) {
+            { & $Rollup -Path (Get-TestFolder) -MaxAge $age } | Should -Throw '*MaxAge*' -Because "-MaxAge $age"
+        }
+    }
+
     It "rolls up the scanner's real reports" {
         $dir = Get-TestFolder
         $scanner = Join-Path $Root 'Invoke-EndpointComplianceScan.ps1'

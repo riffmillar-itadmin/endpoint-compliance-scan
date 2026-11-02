@@ -33,6 +33,9 @@
     doesn't. -Unregister removes the task; add -RemoveFiles to remove the installed
     copy too. -WhatIf shows what would change.
 
+    Exit codes: 0 done (or, with -WhatIf, shown); 2 nothing was scheduled or
+    removed, or it stopped partway, with the error written to the error stream.
+
 .PARAMETER Framework
     One or more frameworks to evaluate, as for the scanner. The machine is
     collected once per run and evaluated against each.
@@ -51,7 +54,9 @@
 .PARAMETER ProfilePath
     A thresholds file to install as the scanner's ComplianceScan.local.psd1.
     Without it, a ComplianceScan.local.psd1 beside this script is installed if
-    there is one.
+    there is one. With neither, the scanner uses
+    %ProgramData%\EndpointComplianceScan\ComplianceScan.local.psd1 when that
+    exists, whatever -DataPath says.
 
 .PARAMETER Schedule
     Weekly (the default) or Daily.
@@ -91,7 +96,7 @@
     Weekly CMMC scan, Mondays from 02:00 with up to two hours' random delay.
 
 .EXAMPLE
-    .\Register-ComplianceScanTask.ps1 -Framework CMMC, DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_STIG.zip -OutputPath \\fileserver\scans -Schedule Daily -At 22:00
+    .\Register-ComplianceScanTask.ps1 -Framework CMMC, DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R11_STIG.zip -OutputPath \\fileserver\scans -Schedule Daily -At 22:00
     Daily scan against two frameworks, with STIG Viewer checklists for the STIG.
 
 .EXAMPLE

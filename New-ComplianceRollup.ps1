@@ -47,7 +47,8 @@
     Only roll up these framework Ids, such as CMMC or DISA-STIG-WS2025-MS.
 
 .PARAMETER MaxAge
-    Days after which a machine's latest scan is flagged as stale. Default 30.
+    Days after which a machine's latest scan is flagged as stale, from 1 to
+    3650. Default 30.
 
 .PARAMETER AsOf
     The date to judge scan age against, in UTC. Defaults to now.
@@ -75,7 +76,7 @@ param(
     [Parameter(Mandatory)][string]$Path,
     [string]$OutputPath,
     [string[]]$Framework = @(),
-    [int]$MaxAge = 30,
+    [ValidateRange(1, 3650)][int]$MaxAge = 30,
     [Nullable[datetime]]$AsOf,
     [ValidateRange(1, 3650)][int]$TrendDays = 90,
     [switch]$Recurse

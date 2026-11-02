@@ -1,15 +1,19 @@
 <#
 .SYNOPSIS
     Scans the local Windows endpoint for evidence against one or more compliance
-    frameworks, chosen at run time: CMMC, NIST SP 800-171 Rev 3, NIST SP 800-53 Rev 5, the DISA
-    STIGs for Windows 11 and Windows Server 2019, 2022 and 2025, CIS Controls v8.1,
-    NIST CSF 2.0, PCI DSS 4.0.1 or HIPAA.
+    frameworks, chosen at run time: CMMC, NIST SP 800-171 Rev 3, NIST SP 800-53
+    Rev 5, the DISA STIGs for Windows 11, Windows Server 2019, 2022 and 2025,
+    Windows Defender Firewall, Active Directory Domain and Forest, and Windows
+    PAW, CIS Controls v8.1, NIST CSF 2.0, PCI DSS 4.0.1 or HIPAA.
 
 .DESCRIPTION
-    Read-only. The scan changes no setting, writes nothing to the registry and makes
-    no network call; on a domain controller it reads Active Directory from itself
-    (localhost) over LDAP. Its only side effects are temporary files (the secedit
-    and auditpol exports), deleted as soon as they are read, and the report files.
+    Read-only. The scan changes no setting and writes nothing to the registry. Its
+    only network traffic is writing reports to a share when -OutputPath names
+    one; on a domain controller it reads Active Directory from itself (localhost)
+    over LDAP. Its only side effects are temporary files (the secedit and auditpol
+    exports), deleted as soon as they are read, the report files, and, when
+    -FallbackPath and -LogPath are given, the reports waiting there and the run
+    log.
 
     It works in two stages so that every pass/fail rule can be tested anywhere:
         1. Collect: gather raw facts about the machine into a snapshot.
@@ -78,7 +82,8 @@
     frameworks, the level must belong to each.
 
 .PARAMETER OutputPath
-    Folder for the report files. Defaults to a Reports folder beside this script.
+    Folder for the report files. Defaults to a Reports folder in the current
+    PowerShell folder, created if needed.
 
 .PARAMETER FallbackPath
     Folder for the reports when -OutputPath can't be written, such as a share
@@ -100,7 +105,11 @@
 .PARAMETER ProfilePath
     Thresholds file to use on top of ComplianceScan.example.psd1 and the
     framework's own thresholds, which can also list accepted deviations. Without
-    it, a ComplianceScan.local.psd1 beside the script is used if present.
+    it, a ComplianceScan.local.psd1 beside the script is used if present, else
+    %ProgramData%\EndpointComplianceScan\ComplianceScan.local.psd1. That one
+    stops the scan if it or its folder is a junction or link, or is owned by an
+    account other than SYSTEM, Administrators, TrustedInstaller or the one
+    running the scan, since any user can create a folder in ProgramData.
 
 .PARAMETER SnapshotPath
     Also save the collected snapshot to this JSON file, for review elsewhere or as
@@ -132,7 +141,7 @@
     STIG CAT I rules only, and keep the raw snapshot.
 
 .EXAMPLE
-    .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_STIG.zip -OutputPath \\fileserver\scans
+    .\Invoke-EndpointComplianceScan.ps1 -Framework DISA-STIG-WS2022-MS -StigPath .\U_MS_Windows_Server_2022_V2R11_STIG.zip -OutputPath \\fileserver\scans
     Server 2022 member server STIG, with a STIG Viewer checklist, into a shared folder.
 
 .EXAMPLE
@@ -231,6 +240,11 @@
                        of failing them. Snapshot schema 6 (reads 5).
                        BitLocker not installed (Windows Server without the
                        feature) is a Fail, not a collector Error.
+    1.0.0  2026-11-02  First stable release, also published to the PowerShell
+                       Gallery as the EndpointComplianceScan module. Reports
+                       default to .\Reports in the current folder. A default
+                       local profile under %ProgramData%, refused when another
+                       account owns it.
 #>
 
 [CmdletBinding()]
@@ -252,7 +266,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '0.17.0'
+$ComplianceScanVersion = '1.0.0'
 $SnapshotSchemaVersion = 6
 # Older schemas this version still reads. Schema 5 has no Meta.AsSystem, which
 # reads as a scan run by a user.
@@ -3492,6 +3506,37 @@ function Test-FolderWritable {
     }
 }
 
+function Get-DefaultReportFolder {
+    # Reports, under the current PowerShell folder: the scanner's own folder may
+    # be Program Files or a module folder, which a user can't write and which a
+    # module update leaves behind. The current file system folder is used even when the current
+    # location is on another drive, such as HKLM:.
+    Join-Path (Get-Location -PSProvider FileSystem).ProviderPath 'Reports'
+}
+
+function Resolve-ProfilePath {
+    # The local profile: -ProfilePath, else ComplianceScan.local.psd1 beside the
+    # script, else the machine's default, ComplianceScan.local.psd1 in
+    # EndpointComplianceScan under -DataRoot (%ProgramData%). Any user can create
+    # a folder in ProgramData, and a planted profile could accept Fails as
+    # deviations, so the default is refused when it or its folder is a junction
+    # or link, or another account owns it. '' when there is none.
+    param([string]$ProfilePath, [string]$ScriptRoot, [string]$DataRoot)
+    if ($ProfilePath) { return $ProfilePath }
+    $beside = Join-Path $ScriptRoot 'ComplianceScan.local.psd1'
+    if (Test-Path -LiteralPath $beside -PathType Leaf) { return $beside }
+    if (-not $DataRoot) { return '' }
+    $folder = Join-Path $DataRoot 'EndpointComplianceScan'
+    $file = Join-Path $folder 'ComplianceScan.local.psd1'
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { return '' }
+    $trusted = @(Get-TrustedOwnerSid)
+    foreach ($path in $folder, $file) {
+        $why = Get-UntrustedReason $path $trusted
+        if ($why) { throw "The local profile $file isn't used, because $path $($why -replace '^it ', ''). Remove it, or give -ProfilePath." }
+    }
+    $file
+}
+
 function Resolve-ReportFolder {
     # Where this run's reports go: -OutputPath when it can be written, else the
     # fallback folder, else the run stops. Reason says why the fallback was used.
@@ -3663,11 +3708,8 @@ try {
     $names = @(Split-FrameworkList $Framework)
     if ($names.Count -eq 0) { $null = Resolve-Framework $catalogs '' }
 
-    $override = $ProfilePath
-    if (-not $override) {
-        $local = Join-Path $root 'ComplianceScan.local.psd1'
-        if (Test-Path -LiteralPath $local) { $override = $local }
-    }
+    $override = Resolve-ProfilePath -ProfilePath $ProfilePath -ScriptRoot $root -DataRoot $env:ProgramData
+    if ($override) { Write-Host "Local profile: $override" -ForegroundColor Cyan }
     $runs = @(foreach ($name in $names) {
             $catalog = Resolve-Framework $catalogs $name
             [pscustomobject]@{ Catalog = $catalog; Level = (Resolve-FrameworkLevel $catalog $Level); Benchmark = $null; Thresholds = $null }
@@ -3701,7 +3743,7 @@ try {
     }
     $fallback = $FallbackPath
     $folder = $OutputPath
-    if (-not $folder) { $folder = Join-Path $root 'Reports' }
+    if (-not $folder) { $folder = Get-DefaultReportFolder }
     $target = Resolve-ReportFolder -OutputPath $folder -FallbackPath $fallback
     $runLog.Destination = $target.Folder
     if ($target.Destination -eq 'Fallback') { Write-Warning $target.Reason }
