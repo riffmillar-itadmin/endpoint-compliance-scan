@@ -1835,6 +1835,86 @@ Describe 'Thresholds' {
     }
 }
 
+Describe 'Choosing the local profile' {
+    BeforeEach {
+        $script:Base = Join-Path $TestDrive ([guid]::NewGuid().ToString('n'))
+        $script:ScriptDir = Join-Path $Base 'scanner'
+        $script:DataDir = Join-Path $Base 'ProgramData'
+        $script:DataProfile = Join-Path (Join-Path $DataDir 'EndpointComplianceScan') 'ComplianceScan.local.psd1'
+        $null = New-Item -ItemType Directory -Path $ScriptDir, (Split-Path $DataProfile -Parent)
+    }
+
+    It 'takes -ProfilePath over any other' {
+        Set-Content -LiteralPath (Join-Path $ScriptDir 'ComplianceScan.local.psd1') -Value '@{}'
+        Set-Content -LiteralPath $DataProfile -Value '@{}'
+        Resolve-ProfilePath -ProfilePath 'mine.psd1' -ScriptRoot $ScriptDir -DataRoot $DataDir | Should -Be 'mine.psd1'
+    }
+
+    It 'takes the one beside the script over the ProgramData default' {
+        $beside = Join-Path $ScriptDir 'ComplianceScan.local.psd1'
+        Set-Content -LiteralPath $beside -Value '@{}'
+        Set-Content -LiteralPath $DataProfile -Value '@{}'
+        Resolve-ProfilePath -ScriptRoot $ScriptDir -DataRoot $DataDir | Should -Be $beside
+    }
+
+    It 'falls back to the ProgramData default' {
+        Set-Content -LiteralPath $DataProfile -Value '@{}'
+        Resolve-ProfilePath -ScriptRoot $ScriptDir -DataRoot $DataDir | Should -Be $DataProfile
+    }
+
+    It 'returns nothing when there is no profile, or no ProgramData' {
+        Resolve-ProfilePath -ScriptRoot $ScriptDir -DataRoot $DataDir | Should -Be ''
+        Set-Content -LiteralPath $DataProfile -Value '@{}'
+        Resolve-ProfilePath -ScriptRoot $ScriptDir -DataRoot '' | Should -Be ''
+    }
+
+    It 'refuses a ProgramData profile that another account owns' {
+        Set-Content -LiteralPath $DataProfile -Value '@{}'
+        Mock Get-TrustedOwnerSid { @('S-1-5-18', 'S-1-5-32-544') }
+        Mock Get-ItemOwnerSid { if ($Path -like '*.psd1') { 'S-1-5-21-1-2-3-1001' } else { 'S-1-5-32-544' } }
+        { Resolve-ProfilePath -ScriptRoot $ScriptDir -DataRoot $DataDir } | Should -Throw "*$DataProfile isn't used, because $DataProfile is owned by *"
+    }
+
+    It 'refuses a ProgramData profile whose folder another account owns' {
+        Set-Content -LiteralPath $DataProfile -Value '@{}'
+        Mock Get-TrustedOwnerSid { @('S-1-5-18', 'S-1-5-32-544') }
+        Mock Get-ItemOwnerSid { if ($Path -like '*.psd1') { 'S-1-5-32-544' } else { 'S-1-5-21-1-2-3-1001' } }
+        { Resolve-ProfilePath -ScriptRoot $ScriptDir -DataRoot $DataDir } | Should -Throw "*because $(Split-Path $DataProfile -Parent) is owned by *"
+    }
+
+    It 'refuses a ProgramData profile folder that is a junction or link' {
+        Set-Content -LiteralPath $DataProfile -Value '@{}'
+        Mock Test-ReparsePoint { $Path -like '*EndpointComplianceScan' }
+        { Resolve-ProfilePath -ScriptRoot $ScriptDir -DataRoot $DataDir } | Should -Throw '*is a junction or link*'
+    }
+
+    It 'does not check the owner of -ProfilePath or the profile beside the script' {
+        Set-Content -LiteralPath (Join-Path $ScriptDir 'ComplianceScan.local.psd1') -Value '@{}'
+        Mock Get-UntrustedReason { 'it is owned by someone' }
+        { Resolve-ProfilePath -ScriptRoot $ScriptDir -DataRoot $DataDir } | Should -Not -Throw
+        { Resolve-ProfilePath -ProfilePath 'mine.psd1' -ScriptRoot $ScriptDir -DataRoot $DataDir } | Should -Not -Throw
+        Should -Invoke Get-UntrustedReason -Times 0
+    }
+}
+
+Describe 'Default report folder' {
+    It 'is Reports in the current PowerShell folder, not beside the script' {
+        Push-Location -LiteralPath $TestDrive
+        try {
+            Get-DefaultReportFolder | Should -Be (Join-Path (Get-Location).ProviderPath 'Reports')
+        } finally { Pop-Location }
+    }
+
+    It 'uses the current file system folder when the location is on another drive' {
+        Push-Location -LiteralPath $TestDrive
+        $fs = (Get-Location).ProviderPath
+        Set-Location Env:
+        try {
+            Get-DefaultReportFolder | Should -Be (Join-Path $fs 'Reports')
+        } finally { Pop-Location }
+    }
+}
+
 Describe 'Reports' {
     BeforeAll {
         $script:Eval = Invoke-Evaluation (Get-Fixture)

@@ -17,6 +17,11 @@
     Exit code 0 only when every test passed and none was skipped. A skipped test
     is counted and fails the run: a test that can't apply must say so, not pass.
 
+.PARAMETER BothEditions
+    Also run the suite under the other PowerShell edition: powershell.exe (5.1)
+    from pwsh, or pwsh from Windows PowerShell. The run fails if that edition
+    can't be found. Use it before every commit.
+
 .PARAMETER PackagePath
     A folder holding Pester.6.2.0.nupkg, used if Pester is missing and can't be
     downloaded.

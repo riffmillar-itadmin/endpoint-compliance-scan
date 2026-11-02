@@ -5,7 +5,9 @@
 .DESCRIPTION
     Runs PSScriptAnalyzer over every script in the repository with
     PSScriptAnalyzerSettings.psd1. Errors and warnings fail (exit 1); Information
-    findings are reported but do not.
+    findings are reported but do not. It also builds the Gallery module
+    (tools/Build-Module.ps1) in a temporary folder and lints that, since the
+    module's commands are generated.
 
     Pinned to the analyzer version the settings were tuned against, because a
     newer analyzer can add rules and fail the build with no code change. Installs
@@ -45,13 +47,28 @@ Import-Module PSScriptAnalyzer -RequiredVersion $version
 
 $settings = Join-Path $PSScriptRoot 'PSScriptAnalyzerSettings.psd1'
 $findings = @(Invoke-ScriptAnalyzer -Path $PSScriptRoot -Recurse -Settings $settings)
+
+# The Gallery module too, since its commands are generated: built in a temporary
+# folder, and its findings named module/<file>.
+$moduleOut = Join-Path ([IO.Path]::GetTempPath()) "ecs-lint-$([guid]::NewGuid().ToString('n'))"
+try {
+    $built = & (Join-Path $PSScriptRoot 'tools/Build-Module.ps1') -OutputPath $moduleOut 6>$null
+    $moduleRoot = @($built)[-1].FullName
+    $findings += @(Invoke-ScriptAnalyzer -Path $moduleRoot -Recurse -Settings $settings)
+} finally {
+    if (Test-Path -LiteralPath $moduleOut) { Remove-Item -LiteralPath $moduleOut -Recurse -Force }
+}
 $inActions = $env:GITHUB_ACTIONS -eq 'true'
 
 Push-Location $PSScriptRoot
 try {
     foreach ($f in $findings) {
         # repo-relative with forward slashes, so GitHub links the annotation to the file
-        $file = (Resolve-Path -Relative $f.ScriptPath) -replace '^\.[\\/]', '' -replace '\\', '/'
+        if ($f.ScriptPath.StartsWith($moduleRoot)) {
+            $file = 'module/' + ($f.ScriptPath.Substring($moduleRoot.Length).TrimStart('\', '/') -replace '\\', '/')
+        } else {
+            $file = (Resolve-Path -Relative $f.ScriptPath) -replace '^\.[\\/]', '' -replace '\\', '/'
+        }
         if ($inActions) {
             $level = if ("$($f.Severity)" -eq 'Information') { 'notice' } else { 'error' }
             Write-Output "::$level file=$file,line=$($f.Line)::[$($f.RuleName)] $($f.Message)"

@@ -8,7 +8,8 @@
 #   1. this file
 #   2. the chosen framework's Thresholds (for example the STIG's 14-character
 #      passwords, or PCI DSS's 30-minute lockout), in frameworks/*.psd1
-#   3. ComplianceScan.local.psd1 beside the script, or the file -ProfilePath names
+#   3. the file -ProfilePath names, else ComplianceScan.local.psd1 beside the
+#      script, else %ProgramData%\EndpointComplianceScan\ComplianceScan.local.psd1
 # To change a value, copy this file to ComplianceScan.local.psd1 and keep only
 # the keys you change; the local file is gitignored. If your value is looser
 # than one the framework sets, the scan warns and uses yours.

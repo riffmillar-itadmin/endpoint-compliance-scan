@@ -39,7 +39,51 @@ partial catalog says it is a subset. DISA has sunset the Server 2019 STIG, so
 its catalogs stay at V3R8, its final release, and those scans say so. [frameworks/README.md](frameworks/README.md)
 has the sources and the catalog format.
 
-Runs on Windows PowerShell 5.1 and PowerShell 7. No modules to install.
+Runs on Windows PowerShell 5.1 and PowerShell 7. Nothing else to install.
+
+## Getting started
+
+Install it from the PowerShell Gallery, or download it from GitHub. Either way,
+scan from an elevated PowerShell (**Run as administrator**): without elevation
+the checks that need it are Skipped.
+
+**From the PowerShell Gallery**, as the `EndpointComplianceScan` module:
+
+```powershell
+Install-Module EndpointComplianceScan -Scope CurrentUser
+Invoke-EndpointComplianceScan -Framework CMMC
+```
+
+The module's commands, `Invoke-EndpointComplianceScan`, `New-ComplianceRollup`
+and `Register-ComplianceScanTask`, run the same scripts with the same parameters
+and help. This README shows the script form, `.\Invoke-EndpointComplianceScan.ps1`;
+with the module, drop the `.\` and `.ps1`. Each command sets `$LASTEXITCODE` to
+the script's [exit code](#usage). `Update-Module EndpointComplianceScan` installs
+a new release, in a new folder, so keep your
+[local profile](#thresholds) in `%ProgramData%\EndpointComplianceScan` or pass
+`-ProfilePath`, not beside the module.
+
+**From GitHub**: download the latest
+[Release](https://github.com/riffmillar-itadmin/endpoint-compliance-scan/releases/latest)
+(**Source code (zip)**) and extract it, or `git clone` the repository. A
+downloaded zip carries the Mark of the Web, and Windows won't run its unsigned
+scripts under the `RemoteSigned` policy that Windows Server uses by default, so
+unblock the extracted files first:
+
+```powershell
+cd C:\Tools\endpoint-compliance-scan        # wherever you extracted it
+Get-ChildItem -Recurse -File | Unblock-File
+.\Invoke-EndpointComplianceScan.ps1 -Framework CMMC
+```
+
+If PowerShell says running scripts is disabled (the Windows 11 default for
+Windows PowerShell 5.1), allow them for this window only with
+`Set-ExecutionPolicy -Scope Process RemoteSigned`, or follow your
+organization's policy.
+
+Reports go to `.\Reports` in the current folder; [Reports](#reports) describes
+them. To scan on a schedule across many machines, see
+[Scheduled scans](#scheduled-scans).
 
 ## Choosing a STIG
 
@@ -93,7 +137,8 @@ review.
 Nothing. It reads the registry, security policy, user rights, audit policy,
 services, Windows features, firewall, Defender, BitLocker, Device Guard, local
 accounts and groups, and installed updates, and on a domain controller Active Directory, which it reads
-from that domain controller itself (localhost). It makes no other network calls.
+from that domain controller itself (localhost). It makes no other network calls,
+apart from writing its reports to a share when `-OutputPath` names one.
 Its only side effects are
 temporary files (the `secedit` and `auditpol` exports), deleted as soon as they
 are read, and the report files (plus the waiting reports and run log, when
@@ -141,7 +186,8 @@ applies to every one of them, so give it only when they share the level.
 One snapshot holds the facts for every framework, so a machine scanned once can
 be evaluated against any of them with `-FromSnapshot`.
 
-Reports go to `.\Reports` or `-OutputPath`; see [Reports](#reports).
+Reports go to `.\Reports` in the current folder, or to `-OutputPath`; see
+[Reports](#reports).
 
 A live scan says at launch that it usually takes 2 to 5 minutes (longer on a
 domain controller with a large directory) and changes nothing, and warns when the
@@ -163,8 +209,8 @@ With several frameworks, the exit code is the worst of them.
 `Register-ComplianceScanTask.ps1` sets up a machine to scan itself on a schedule
 and write its reports to a shared folder, where the [roll-up](#roll-up-across-machines)
 and the [Power BI template](#power-bi) read them. Run it elevated, from a copy of
-the repository, on each machine (or push the same command through Intune, Group
-Policy or your management tool).
+the repository or the module, on each machine (or push the same command through
+Intune, Group Policy or your management tool).
 
 ```powershell
 # Weekly CMMC scan, Mondays from 02:00 with up to two hours' random delay
@@ -216,7 +262,7 @@ note saying to check them in a user's session.
 | `-Level` | each framework's highest | As for the scanner. |
 | `-OutputPath` | (required) | The shared folder, as a UNC path. SYSTEM can't see a user's mapped drives. |
 | `-StigPath` | | The DISA STIG zip, for STIG Viewer checklists. |
-| `-ProfilePath` | `ComplianceScan.local.psd1` beside the script, if any | Installed as the scanner's local profile. |
+| `-ProfilePath` | `ComplianceScan.local.psd1` beside the script, if any | Installed as the scanner's local profile. With neither, the scanner uses the profile in `%ProgramData%\EndpointComplianceScan`, if there is one. |
 | `-Schedule` | `Weekly` | `Weekly` or `Daily`. |
 | `-At` | `02:00` | Start time, local, as `HH:mm`. |
 | `-DaysOfWeek` | `Monday` | Days for a weekly task. |
@@ -226,6 +272,11 @@ note saying to check them in a user's session.
 | `-DataPath` | `%ProgramData%\EndpointComplianceScan` | Where the fallback folder and run log live. |
 | `-TaskName` | `Endpoint compliance scan` | The task's name. |
 | `-Unregister`, `-RemoveFiles` | | Remove the task, and with `-RemoveFiles` the installed copy. The fallback folder and run log stay, since they may hold reports not yet delivered. |
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Done: the task is registered or removed (with `-WhatIf`, what would change is shown) |
+| 2 | Nothing was scheduled or removed, or it stopped partway; the error says why |
 
 ### When the share is away
 
@@ -509,12 +560,21 @@ order, later winning:
 2. the framework's own `Thresholds` in its catalog, for example the STIG's
    14-character passwords and lockout after 3 attempts, or PCI DSS's 30-minute
    lockout
-3. `ComplianceScan.local.psd1` beside the script, or the file `-ProfilePath`
-   names
+3. your local profile: the file `-ProfilePath` names, else
+   `ComplianceScan.local.psd1` beside the script, else
+   `%ProgramData%\EndpointComplianceScan\ComplianceScan.local.psd1`
 
 To change a value, create `ComplianceScan.local.psd1` with only the keys you
 change; it is gitignored. If your value is looser than one the framework sets,
-the scan warns and uses yours.
+the scan warns and uses yours. The scan names the profile it uses.
+
+The `%ProgramData%` location suits the Gallery module, which each update
+installs in a new folder. Create it from an elevated PowerShell. Any user can create a folder
+in ProgramData, and a planted profile could accept Fails as deviations, so the
+scan stops if that file or its folder is a junction or link, or is owned by an
+account other than SYSTEM, Administrators, TrustedInstaller or the one running
+the scan. A scheduled scan's data folder is that same folder, already limited to
+SYSTEM and Administrators.
 
 `RequireFipsMode` and `RequireRemovableMediaPolicy` can be set to `$false` when
 FIPS-validated modules or device control are evidenced some other way. Those
@@ -557,6 +617,29 @@ account also holds the right, the rule stays Fail and its note says what the
 deviation doesn't cover. When a listed rule no longer fails, its note says the
 deviation may no longer be needed. A malformed entry stops the scan.
 
+## Compatibility
+
+From 1.0.0 the project follows [semantic versioning](https://semver.org). Within
+1.x these stay compatible:
+
+- the scripts' and the module commands' parameters, and what they mean;
+- the exit codes;
+- report file names, the CSV columns, the JSON and `.records.json` fields (which
+  the Power BI template and the roll-up read), and the STIG Viewer checklist
+  formats. New columns and fields may be added;
+- the snapshot: a 1.x release reads every snapshot an earlier 1.x wrote;
+- the catalog format in `frameworks/`, and the local profile's keys.
+
+A minor release adds frameworks, checks or fields, or updates a catalog to a new
+release of its standard, such as a new DISA STIG. Results can change in a minor
+or patch release, since a catalog update or a fixed check can turn a Pass into a
+Fail. A patch release fixes bugs. Anything that breaks the list above waits for
+2.0.
+
+Supported: Windows PowerShell 5.1 and PowerShell 7 on Windows 11 and Windows
+Server 2019 or later. `-FromSnapshot` and the roll-up also run under
+PowerShell 7 on Linux and macOS.
+
 ## Testing
 
 ```powershell
@@ -565,7 +648,9 @@ deviation may no longer be needed. A malformed entry stops the scan.
 ```
 
 The suite feeds fixture snapshots to the checks, so it needs no network, no
-elevation and no Windows. It also checks the Power BI project: every field
+elevation and no Windows. It builds the Gallery module with
+`tools/Build-Module.ps1`, imports it, and scans a fixture through its commands,
+and the lint script lints the built module as well as the repository. It also checks the Power BI project: every field
 the report uses is in the model, and the model reads the fields the scanner
 writes. For every framework it checks the catalog's shape and
 that a snapshot meeting every expectation passes. Skipped tests fail the run.
@@ -626,6 +711,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 1.0.0 | 2026-11-02 | First stable release; [Compatibility](#compatibility) says what 1.x keeps stable. Also on the PowerShell Gallery as the `EndpointComplianceScan` module (`Install-Module EndpointComplianceScan`), whose commands `Invoke-EndpointComplianceScan`, `New-ComplianceRollup` and `Register-ComplianceScanTask` run the same scripts with the same parameters; `tools/Build-Module.ps1` builds it, and the tests build and import it on both editions. Reports now default to `.\Reports` in the current folder, as the README said, instead of a Reports folder beside the script. Without `-ProfilePath` or a `ComplianceScan.local.psd1` beside the script, the scanner uses `%ProgramData%\EndpointComplianceScan\ComplianceScan.local.psd1`, and stops if that file or its folder is a link or another account owns it. The scan names the local profile it uses. `New-ComplianceRollup.ps1 -MaxAge` takes 1 to 3650 days. README: Getting started (download, unblock, run elevated), Compatibility, and the task script's exit codes; SECURITY.md covers scheduled scans and supported versions; help lists every STIG and the side effects. |
 | 0.17.0 | 2026-11-01 | Fixes before 1.0. `Register-ComplianceScanTask.ps1` makes the data folder readable and writable by SYSTEM and Administrators only, since ProgramData lets any user create files in a subfolder and a planted file in the fallback folder would reach the share as that computer's report; a data folder holding a link, or anything another account owns, is refused. The scanner doesn't deliver a waiting file that is a link or that another account owns, and stops when the fallback folder is a link. Registering again removes a profile or STIG file an earlier run installed, so dropped thresholds and accepted deviations stop applying. A scan run as SYSTEM reports per-user (HKCU) settings Skipped instead of judging SYSTEM's own, which made those STIG rules fail in every scheduled scan. Snapshot schema 6, which records whether the scan ran as SYSTEM; schema 5 snapshots still read. On Windows Server without the BitLocker feature, the BitLocker check now reports a Fail saying BitLocker isn't installed; before, the collector errored and the scan exited 2. `.gitignore` covers every report and roll-up file. New tests keep the README's framework table, the version notes, the changelog and the live-scan job's framework list in step with the code. |
 | 0.16.1 | 2026-10-30 | README: screenshots of the HTML report, the Power BI template and the roll-up, made from the fictional WESTMARK test machines. |
 | 0.16.0 | 2026-10-30 | Scheduled scans. `Register-ComplianceScanTask.ps1` installs the scanner to Program Files and registers a weekly (or daily) task that runs it as SYSTEM, with a random delay, writing to a shared folder; `-Unregister` removes it. The scanner takes several frameworks in one run, collecting once. When `-OutputPath` can't be written, `-FallbackPath` keeps the reports and a later run delivers them, oldest first; `-KeepDays` (default 90) removes ones that wait too long. `-LogPath` adds a row per run to a CSV. The README gives share permissions that let machines add reports without reading each other's. |

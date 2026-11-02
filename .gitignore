@@ -27,6 +27,9 @@ ComplianceScan.local*.psd1
 *.pbix
 *.pbit
 
+#  tools/Build-Module.ps1 builds the Gallery module here.
+/out/
+
 # ---- editor and OS scratch ----
 *.bak
 *.tmp
