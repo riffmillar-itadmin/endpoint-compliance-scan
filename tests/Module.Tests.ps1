@@ -179,6 +179,15 @@ Describe 'Building the module' {
         Get-ReleaseNote -ReadmePath $readme -Version '0.1.0' | Should -Be 'First.'
     }
 
+    It 'documents publishing by the manifest file, not the folder (regression: Publish-PSResource read the example profile)' {
+        $manifestPath = [regex]::Escape('out\EndpointComplianceScan\EndpointComplianceScan.psd1')
+        foreach ($doc in 'tools/Build-Module.ps1', 'README.md') {
+            $text = [IO.File]::ReadAllText((Join-Path $Root $doc))
+            $text | Should -Match "Publish-PSResource -Path \.\\$manifestPath " -Because $doc
+            $text | Should -Not -Match '(?m)^\s*Publish-Module ' -Because "$doc shouldn't offer Publish-Module, which fails to pack with a newer .NET SDK"
+        }
+    }
+
     It 'stops when LICENSE has no copyright line' {
         . $Builder
         $license = Join-Path $TestDrive 'LICENSE'

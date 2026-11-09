@@ -148,7 +148,7 @@
             "text": {
               "expr": {
                 "Literal": {
-                  "Value": "'Requirements by machine: F Fail, E Error, A Accepted, S Skipped, M Manual, P Pass, - N/A'"
+                  "Value": "'Requirements by machine: F Fail, E Error, A Accepted, S Skipped, M Manual, P Pass, - (dash) N/A'"
                 }
               }
             }

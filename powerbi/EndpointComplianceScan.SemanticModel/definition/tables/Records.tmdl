@@ -2,7 +2,7 @@
 table Records
 	lineageTag: fe407b41-d776-58cd-bbe4-f9b8a71a91d8
 
-	/// F Fail, E Error, A Accepted, S Skipped, M Manual, P Pass, - N/A. Blank when more than one scan is in context.
+	/// F Fail, E Error, A Accepted, S Skipped, M Manual, P Pass, - (dash) N/A. Blank when more than one scan is in context.
 	measure 'State code' = SWITCH(SELECTEDVALUE(Records[State]), "Fail", "F", "Error", "E", "Accepted", "A", "Skipped", "S", "Manual", "M", "Pass", "P", "NotApplicable", "-")
 		lineageTag: 4e3cf842-bef9-58dd-9ec4-bfe4092e2dd4
 

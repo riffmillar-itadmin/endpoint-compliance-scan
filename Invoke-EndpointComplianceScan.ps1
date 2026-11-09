@@ -245,6 +245,9 @@
                        default to .\Reports in the current folder. A default
                        local profile under %ProgramData%, refused when another
                        account owns it.
+    1.0.1  2026-11-09  Docs: publish the module by its manifest file, since
+                       Publish-PSResource given the folder reads the example
+                       profile. The Power BI key spells out the dash for N/A.
 #>
 
 [CmdletBinding()]
@@ -266,7 +269,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '1.0.0'
+$ComplianceScanVersion = '1.0.1'
 $SnapshotSchemaVersion = 6
 # Older schemas this version still reads. Schema 5 has no Meta.AsSystem, which
 # reads as a scan run by a user.

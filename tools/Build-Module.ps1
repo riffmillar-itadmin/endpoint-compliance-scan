@@ -22,6 +22,12 @@
     The scripts run from the repository exactly as before; the module is only
     another way to install them.
 
+    To publish, give Publish-PSResource the manifest file, not the module
+    folder. Given a folder, it reads the first .psd1 there by name, which is
+    ComplianceScan.example.psd1, and stops with "No author was provided". The
+    older Publish-Module (PowerShellGet 2) packs with dotnet, which fails on a
+    machine with a newer .NET SDK.
+
 .PARAMETER OutputPath
     The folder to build in. The module goes in an EndpointComplianceScan folder
     inside it, replacing an earlier build. Defaults to out under the repository,
@@ -29,7 +35,7 @@
 
 .EXAMPLE
     .\tools\Build-Module.ps1
-    Publish-Module -Path .\out\EndpointComplianceScan -NuGetApiKey $key
+    Publish-PSResource -Path .\out\EndpointComplianceScan\EndpointComplianceScan.psd1 -Repository PSGallery -ApiKey $key
     Build, then publish to the PowerShell Gallery.
 
 .NOTES
@@ -203,4 +209,5 @@ foreach ($key in 'CmdletsToExport', 'VariablesToExport', 'AliasesToExport') {
 [IO.File]::WriteAllText($manifest.Path, $text, $utf8)
 
 Write-Host "Built $ModuleName $version in $moduleRoot" -ForegroundColor Cyan
+Write-Host "To publish: Publish-PSResource -Path '$($manifest.Path)' -Repository PSGallery -ApiKey <key>"
 Get-Item -LiteralPath $moduleRoot
