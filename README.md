@@ -397,7 +397,7 @@ one in the Framework slicer on the first three.
   level or requirement list changed, because the counts don't compare across
   that, and the Scans table marks each scan's comparability.
 - **Requirements.** The latest scans as a grid of requirements by machine (F
-  Fail, E Error, A Accepted, S Skipped, M Manual, P Pass, - N/A), with the most
+  Fail, E Error, A Accepted, S Skipped, M Manual, P Pass, and a dash for N/A), with the most
   failing requirements beside it. Family and State slicers narrow it.
 - **Machine detail.** Hover over or right-click a machine on another page and
   choose Drill through. It lists the machine's requirements with findings, evidence and
@@ -670,6 +670,20 @@ PSScriptAnalyzer) and check it against a SHA-256 pinned in
 folder and pass that folder with `-PackagePath`. Each source that fails is
 reported, along with the one that worked.
 
+### Publishing the module
+
+`tools/Build-Module.ps1` builds the Gallery module in `out\EndpointComplianceScan`.
+Publish it with the manifest file, not the folder:
+
+```powershell
+.\tools\Build-Module.ps1
+Publish-PSResource -Path .\out\EndpointComplianceScan\EndpointComplianceScan.psd1 -Repository PSGallery -ApiKey $key
+```
+
+Given the folder, `Publish-PSResource` reads `ComplianceScan.example.psd1`, the
+first `.psd1` by name, and stops with "No author was provided". `Publish-Module`
+packs with `dotnet`, which fails on a machine with a newer .NET SDK.
+
 ## Updating the catalogs
 
 The NIST and DISA STIG catalogs are generated from published data by
@@ -711,6 +725,7 @@ until a person checks each automated rule against it.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 1.0.1 | 2026-11-09 | Docs. `tools/Build-Module.ps1` help and the README's new Publishing the module section give the command that works: `Publish-PSResource` with the manifest file. Given the module folder, it reads `ComplianceScan.example.psd1` and stops with "No author was provided", and `Publish-Module` fails to pack on a machine with a newer .NET SDK. The build prints the publish command. The Power BI Requirements grid's key reads "- (dash) N/A", since a bare dash after a comma was easy to miss. |
 | 1.0.0 | 2026-11-02 | First stable release; [Compatibility](#compatibility) says what 1.x keeps stable. Also on the PowerShell Gallery as the `EndpointComplianceScan` module (`Install-Module EndpointComplianceScan`), whose commands `Invoke-EndpointComplianceScan`, `New-ComplianceRollup` and `Register-ComplianceScanTask` run the same scripts with the same parameters; `tools/Build-Module.ps1` builds it, and the tests build and import it on both editions. Reports now default to `.\Reports` in the current folder, as the README said, instead of a Reports folder beside the script. Without `-ProfilePath` or a `ComplianceScan.local.psd1` beside the script, the scanner uses `%ProgramData%\EndpointComplianceScan\ComplianceScan.local.psd1`, and stops if that file or its folder is a link or another account owns it. The scan names the local profile it uses. `New-ComplianceRollup.ps1 -MaxAge` takes 1 to 3650 days. README: Getting started (download, unblock, run elevated), Compatibility, and the task script's exit codes; SECURITY.md covers scheduled scans and supported versions; help lists every STIG and the side effects. |
 | 0.17.0 | 2026-11-01 | Fixes before 1.0. `Register-ComplianceScanTask.ps1` makes the data folder readable and writable by SYSTEM and Administrators only, since ProgramData lets any user create files in a subfolder and a planted file in the fallback folder would reach the share as that computer's report; a data folder holding a link, or anything another account owns, is refused. The scanner doesn't deliver a waiting file that is a link or that another account owns, and stops when the fallback folder is a link. Registering again removes a profile or STIG file an earlier run installed, so dropped thresholds and accepted deviations stop applying. A scan run as SYSTEM reports per-user (HKCU) settings Skipped instead of judging SYSTEM's own, which made those STIG rules fail in every scheduled scan. Snapshot schema 6, which records whether the scan ran as SYSTEM; schema 5 snapshots still read. On Windows Server without the BitLocker feature, the BitLocker check now reports a Fail saying BitLocker isn't installed; before, the collector errored and the scan exited 2. `.gitignore` covers every report and roll-up file. New tests keep the README's framework table, the version notes, the changelog and the live-scan job's framework list in step with the code. |
 | 0.16.1 | 2026-10-30 | README: screenshots of the HTML report, the Power BI template and the roll-up, made from the fictional WESTMARK test machines. |
