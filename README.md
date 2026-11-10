@@ -721,10 +721,23 @@ built from DISA's zip alone. Their automation is written in the mappings, along
 with the release it was checked against. A newer DISA release stops the build
 until a person checks each automated rule against it.
 
+## How this is built
+
+I build this scanner with Claude Code as a pair programmer, under the rules in
+[`CLAUDE.md`](CLAUDE.md), and I review every change before it is committed. The
+Pester suite runs on Windows PowerShell 5.1 and PowerShell 7, and CI runs it,
+PSScriptAnalyzer lint and a live scan on both editions on every pull request
+and every push to `main`. Every release is a signed tag, and from 1.0.0 the
+module is on the PowerShell Gallery. The scanner is read-only (see
+[What it changes](#what-it-changes)), and no model runs during a scan: each
+result comes from evidence read on the machine. The AI writes drafts; the tests
+and I decide what ships.
+
 ## Changelog
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 1.0.2 | 2026-11-10 | README: a How this is built section on how the scanner is written, reviewed, tested and released. No code changes. |
 | 1.0.1 | 2026-11-09 | Docs. `tools/Build-Module.ps1` help and the README's new Publishing the module section give the command that works: `Publish-PSResource` with the manifest file. Given the module folder, it reads `ComplianceScan.example.psd1` and stops with "No author was provided", and `Publish-Module` fails to pack on a machine with a newer .NET SDK. The build prints the publish command. The Power BI Requirements grid's key reads "- (dash) N/A", since a bare dash after a comma was easy to miss. |
 | 1.0.0 | 2026-11-02 | First stable release; [Compatibility](#compatibility) says what 1.x keeps stable. Also on the PowerShell Gallery as the `EndpointComplianceScan` module (`Install-Module EndpointComplianceScan`), whose commands `Invoke-EndpointComplianceScan`, `New-ComplianceRollup` and `Register-ComplianceScanTask` run the same scripts with the same parameters; `tools/Build-Module.ps1` builds it, and the tests build and import it on both editions. Reports now default to `.\Reports` in the current folder, as the README said, instead of a Reports folder beside the script. Without `-ProfilePath` or a `ComplianceScan.local.psd1` beside the script, the scanner uses `%ProgramData%\EndpointComplianceScan\ComplianceScan.local.psd1`, and stops if that file or its folder is a link or another account owns it. The scan names the local profile it uses. `New-ComplianceRollup.ps1 -MaxAge` takes 1 to 3650 days. README: Getting started (download, unblock, run elevated), Compatibility, and the task script's exit codes; SECURITY.md covers scheduled scans and supported versions; help lists every STIG and the side effects. |
 | 0.17.0 | 2026-11-01 | Fixes before 1.0. `Register-ComplianceScanTask.ps1` makes the data folder readable and writable by SYSTEM and Administrators only, since ProgramData lets any user create files in a subfolder and a planted file in the fallback folder would reach the share as that computer's report; a data folder holding a link, or anything another account owns, is refused. The scanner doesn't deliver a waiting file that is a link or that another account owns, and stops when the fallback folder is a link. Registering again removes a profile or STIG file an earlier run installed, so dropped thresholds and accepted deviations stop applying. A scan run as SYSTEM reports per-user (HKCU) settings Skipped instead of judging SYSTEM's own, which made those STIG rules fail in every scheduled scan. Snapshot schema 6, which records whether the scan ran as SYSTEM; schema 5 snapshots still read. On Windows Server without the BitLocker feature, the BitLocker check now reports a Fail saying BitLocker isn't installed; before, the collector errored and the scan exited 2. `.gitignore` covers every report and roll-up file. New tests keep the README's framework table, the version notes, the changelog and the live-scan job's framework list in step with the code. |

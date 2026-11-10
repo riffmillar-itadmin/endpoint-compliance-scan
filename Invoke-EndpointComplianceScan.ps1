@@ -248,6 +248,7 @@
     1.0.1  2026-11-09  Docs: publish the module by its manifest file, since
                        Publish-PSResource given the folder reads the example
                        profile. The Power BI key spells out the dash for N/A.
+    1.0.2  2026-11-10  README: How this is built. No code changes.
 #>
 
 [CmdletBinding()]
@@ -269,7 +270,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '1.0.1'
+$ComplianceScanVersion = '1.0.2'
 $SnapshotSchemaVersion = 6
 # Older schemas this version still reads. Schema 5 has no Meta.AsSystem, which
 # reads as a scan run by a user.
