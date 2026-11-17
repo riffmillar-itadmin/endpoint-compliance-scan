@@ -249,6 +249,9 @@
                        Publish-PSResource given the folder reads the example
                        profile. The Power BI key spells out the dash for N/A.
     1.0.2  2026-11-10  README: How this is built. No code changes.
+    1.0.3  2026-11-16  Tests: the test, lint and scheduled-task CI scripts
+                       end with the same summary banner as JobSweep's.
+                       Lint takes -BothEditions. No scanner changes.
 #>
 
 [CmdletBinding()]
@@ -270,7 +273,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ComplianceScanVersion = '1.0.2'
+$ComplianceScanVersion = '1.0.3'
 $SnapshotSchemaVersion = 6
 # Older schemas this version still reads. Schema 5 has no Meta.AsSystem, which
 # reads as a scan run by a user.
