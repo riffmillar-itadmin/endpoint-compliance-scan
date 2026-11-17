@@ -10,7 +10,12 @@
     -Run it also starts the task twice: once with a writable share, which must
     receive a report per framework, and once with a share that can't be written,
     whose reports must land in the fallback folder. Then it unregisters the task
-    and removes the installed copy. Throws on the first thing that's wrong.
+    and removes the installed copy.
+
+    Each check is a row in the summary banner from tools/Write-TestSummary.ps1.
+    The first check that fails stops the ones after it, which are counted as
+    skipped; unregistering is still tried. Without -Run the run checks are
+    skipped and counted. Exit code 1 if any check failed.
 #>
 
 [CmdletBinding()]
@@ -32,6 +37,7 @@ $data = Join-Path $WorkPath 'data'
 $share = Join-Path $WorkPath 'share'
 $blocker = Join-Path $WorkPath 'blocker.txt'
 $frameworks = 'CMMC,DISA-STIG-WS2025-MS'
+. (Join-Path $repo 'tools/Write-TestSummary.ps1')
 
 function Register-CiTask {
     param([string]$OutputPath)
@@ -59,52 +65,97 @@ function Get-LastLogRow {
     @(Import-Csv -LiteralPath (Join-Path $data 'scan-log.csv'))[-1]
 }
 
-try {
+# Each check runs in this scope (dot-sourced), so later checks see what earlier
+# ones set. A check throws when something is wrong.
+$checks = [Collections.Generic.List[object]]::new()
+function Add-Check {
+    param([string]$Name, [scriptblock]$Body, [switch]$NeedsRun, [switch]$Always)
+    $checks.Add([pscustomobject]@{ Name = $Name; Body = $Body; NeedsRun = [bool]$NeedsRun; Always = [bool]$Always })
+}
+
+Add-Check 'Register the task, writing to a share' {
     Register-CiTask -OutputPath $share
-    $task = Get-ScheduledTask -TaskName $taskName
+    $script:task = Get-ScheduledTask -TaskName $taskName
+    Write-Host "Registered: $($task.Actions[0].Execute) $($task.Actions[0].Arguments)"
+}
+Add-Check 'Task runs as SYSTEM at the highest run level' {
     if ($task.Principal.UserId -notmatch 'SYSTEM') { throw "The task runs as $($task.Principal.UserId), not SYSTEM." }
     if ("$($task.Principal.RunLevel)" -ne 'Highest') { throw "The task's run level is $($task.Principal.RunLevel), not Highest." }
+}
+Add-Check 'Task arguments name the frameworks' {
     if ($task.Actions[0].Arguments -notmatch [regex]::Escape("-Framework `"$frameworks`"")) { throw "Unexpected arguments: $($task.Actions[0].Arguments)" }
+}
+Add-Check 'Scanner installed with its catalogs' {
     if (-not (Test-Path -LiteralPath (Join-Path $install 'frameworks/cmmc.psd1'))) { throw "The scanner isn't installed in $install." }
-    Write-Host "Registered: $($task.Actions[0].Execute) $($task.Actions[0].Arguments)"
-
+}
+Add-Check 'Data folder limited to SYSTEM and Administrators' {
     # The data folder is SYSTEM's and Administrators' only, not inherited.
     $acl = Get-Acl -LiteralPath $data
     if (-not $acl.AreAccessRulesProtected) { throw "$data still inherits access from its parent." }
     $who = @($acl.Access | ForEach-Object { $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } | Sort-Object -Unique)
     if (($who -join ',') -ne 'S-1-5-18,S-1-5-32-544') { throw "$data grants access to $($who -join ', '), not only SYSTEM and Administrators." }
+}
+Add-Check 'Fallback folder created' {
     if (-not (Test-Path -LiteralPath (Join-Path $data 'Pending') -PathType Container)) { throw "No fallback folder in $data." }
-    Write-Host "Data folder $data is limited to SYSTEM and Administrators."
-
-    if ($Run) {
-        # A writable share gets one report set per framework, from one run.
-        $result = Invoke-CiTask
-        if ($result -gt 1) { throw "The scheduled scan exited $result." }
-        foreach ($fw in 'cmmc', 'disa-stig-ws2025-ms') {
-            if (@(Get-ChildItem -LiteralPath $share -Filter "compliance-scan-*-$fw.csv").Count -ne 1) { throw "No $fw report in $share." }
-        }
-        $row = Get-LastLogRow
-        if ($row.Destination -ne $share) { throw "The run log says the reports went to $($row.Destination)." }
-
-        # A share that can't be written sends the reports to the fallback folder.
-        Set-Content -LiteralPath $blocker -Value 'x'
-        Register-CiTask -OutputPath (Join-Path $blocker 'share')
-        $result = Invoke-CiTask
-        if ($result -gt 1) { throw "The scheduled scan with the share away exited $result." }
-        $pending = Join-Path $data 'Pending'
-        if (@(Get-ChildItem -LiteralPath $pending -Filter 'compliance-scan-*.csv').Count -ne 2) { throw "Expected two waiting CSV reports in $pending." }
-        $row = Get-LastLogRow
-        if ($row.Destination -ne $pending) { throw "The run log says the reports went to $($row.Destination), not $pending." }
-        Write-Host "Share away: the reports waited in $pending, as expected."
+}
+Add-Check 'Run to a writable share: one report per framework' -NeedsRun {
+    $result = Invoke-CiTask
+    if ($result -gt 1) { throw "The scheduled scan exited $result." }
+    foreach ($fw in 'cmmc', 'disa-stig-ws2025-ms') {
+        if (@(Get-ChildItem -LiteralPath $share -Filter "compliance-scan-*-$fw.csv").Count -ne 1) { throw "No $fw report in $share." }
     }
-
+}
+Add-Check 'Run log names the share' -NeedsRun {
+    $row = Get-LastLogRow
+    if ($row.Destination -ne $share) { throw "The run log says the reports went to $($row.Destination)." }
+}
+Add-Check 'Share away: reports wait in the fallback folder' -NeedsRun {
+    # A share that can't be written sends the reports to the fallback folder.
+    Set-Content -LiteralPath $blocker -Value 'x'
+    Register-CiTask -OutputPath (Join-Path $blocker 'share')
+    $result = Invoke-CiTask
+    if ($result -gt 1) { throw "The scheduled scan with the share away exited $result." }
+    if (@(Get-ChildItem -LiteralPath (Join-Path $data 'Pending') -Filter 'compliance-scan-*.csv').Count -ne 2) { throw "Expected two waiting CSV reports in $(Join-Path $data 'Pending')." }
+}
+Add-Check 'Run log names the fallback folder' -NeedsRun {
+    $pending = Join-Path $data 'Pending'
+    $row = Get-LastLogRow
+    if ($row.Destination -ne $pending) { throw "The run log says the reports went to $($row.Destination), not $pending." }
+}
+Add-Check 'Unregister and remove the installed copy' -Always {
     & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'Register-ComplianceScanTask.ps1') -Unregister -RemoveFiles -TaskName $taskName -InstallPath $install
     if ($LASTEXITCODE -ne 0) { throw "Unregistering exited $LASTEXITCODE." }
     if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) { throw 'The task is still registered.' }
     if (Test-Path -LiteralPath $install) { throw "$install is still there." }
-    Write-Host 'Unregistered, and the installed copy removed.'
-    exit 0
-} catch {
-    Write-Error -ErrorRecord $_ -ErrorAction Continue
-    exit 1
 }
+
+$rows = [Collections.Generic.List[object]]::new()
+$stopped = ''
+foreach ($c in $checks) {
+    $outcome = 'PASS'; $note = ''
+    if ($c.NeedsRun -and -not $Run) {
+        $outcome = 'SKIP'; $note = 'needs -Run'
+    } elseif ($stopped -and -not $c.Always) {
+        $outcome = 'SKIP'; $note = "not run: '$stopped' failed"
+    } else {
+        Write-Host "`n-- $($c.Name)" -ForegroundColor Cyan
+        try {
+            . $c.Body
+        } catch {
+            $outcome = 'FAIL'; $note = "$($_.Exception.Message)"
+            Write-Host "FAIL: $note" -ForegroundColor Red
+            if (-not $stopped) { $stopped = $c.Name }
+        }
+    }
+    $rows.Add([pscustomobject][ordered]@{ Check = $c.Name; Result = $outcome; Note = $note })
+}
+
+$pass = @($rows | Where-Object Result -eq 'PASS').Count
+$fail = @($rows | Where-Object Result -eq 'FAIL').Count
+$skip = @($rows | Where-Object Result -eq 'SKIP').Count
+$label = 'tests/ci/Test-ScheduledScanTask.ps1'
+if ($Run) { $label += ' -Run' }
+Write-TestSummary -Script $label -Target "Register-ComplianceScanTask.ps1, task '$taskName', $WorkPath" `
+    -Rows $rows -Pass $pass -Fail $fail -Skip $skip
+if ($fail -gt 0) { exit 1 }
+exit 0

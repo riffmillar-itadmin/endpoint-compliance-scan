@@ -643,9 +643,15 @@ PowerShell 7 on Linux and macOS.
 ## Testing
 
 ```powershell
-.\Test-ComplianceScan.ps1 -BothEditions    # Pester suite under 5.1 and 7
-.\Test-ComplianceScanLint.ps1              # PSScriptAnalyzer; run under pwsh and powershell.exe
+.\Test-ComplianceScan.ps1 -BothEditions      # Pester suite under 5.1 and 7
+.\Test-ComplianceScanLint.ps1 -BothEditions  # PSScriptAnalyzer under 5.1 and 7
 ```
+
+Each run ends with a summary banner: the status and pass, fail and skip
+counts, the target, run time and PowerShell version, one table (a row per test
+file, per edition, or per lint rule that fired), and a RESULT bar. It is green
+when everything passed, yellow when something was skipped and red when anything
+failed, and copies cleanly from the console or a CI log.
 
 The suite feeds fixture snapshots to the checks, so it needs no network, no
 elevation and no Windows. It builds the Gallery module with
@@ -737,6 +743,7 @@ and I decide what ships.
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 1.0.3 | 2026-11-16 | Tests only; the scanner is unchanged. `Test-ComplianceScan.ps1`, `Test-ComplianceScanLint.ps1` and the CI check `tests/ci/Test-ScheduledScanTask.ps1` end with the summary banner from the new `tools/Write-TestSummary.ps1`, the format the JobSweep repository uses: a coloured `#` banner with the status and pass, fail and skip counts, the target, run time and PowerShell version, one table, and a RESULT bar. The suite's table has a row per test file, or with `-BothEditions` a row per edition. `Test-ComplianceScanLint.ps1 -BothEditions` lints under Windows PowerShell 5.1 and PowerShell 7 with one summary. A test or lint run that throws counts as a failure and the summary still prints. The scheduled-task check reports each step, so a failure no longer hides the checks after it; they are counted as skipped. |
 | 1.0.2 | 2026-11-10 | README: a How this is built section on how the scanner is written, reviewed, tested and released. No code changes. |
 | 1.0.1 | 2026-11-09 | Docs. `tools/Build-Module.ps1` help and the README's new Publishing the module section give the command that works: `Publish-PSResource` with the manifest file. Given the module folder, it reads `ComplianceScan.example.psd1` and stops with "No author was provided", and `Publish-Module` fails to pack on a machine with a newer .NET SDK. The build prints the publish command. The Power BI Requirements grid's key reads "- (dash) N/A", since a bare dash after a comma was easy to miss. |
 | 1.0.0 | 2026-11-02 | First stable release; [Compatibility](#compatibility) says what 1.x keeps stable. Also on the PowerShell Gallery as the `EndpointComplianceScan` module (`Install-Module EndpointComplianceScan`), whose commands `Invoke-EndpointComplianceScan`, `New-ComplianceRollup` and `Register-ComplianceScanTask` run the same scripts with the same parameters; `tools/Build-Module.ps1` builds it, and the tests build and import it on both editions. Reports now default to `.\Reports` in the current folder, as the README said, instead of a Reports folder beside the script. Without `-ProfilePath` or a `ComplianceScan.local.psd1` beside the script, the scanner uses `%ProgramData%\EndpointComplianceScan\ComplianceScan.local.psd1`, and stops if that file or its folder is a link or another account owns it. The scan names the local profile it uses. `New-ComplianceRollup.ps1 -MaxAge` takes 1 to 3650 days. README: Getting started (download, unblock, run elevated), Compatibility, and the task script's exit codes; SECURITY.md covers scheduled scans and supported versions; help lists every STIG and the side effects. |
